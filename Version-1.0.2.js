@@ -81,3 +81,50 @@ SET URL_KEY = $url_key_value
 WHERE CATEGORY_DESCRIPTION_CATEGORY_ID = 1001;
 
 
+line-229-257****************************************
+
+CREATE OR REPLACE PROCEDURE delete_sub_categories(category_id STRING)
+RETURNS STRING
+LANGUAGE JAVASCRIPT
+AS
+$$
+try {
+    // Recursive CTE to find all subcategories
+    var sql = `
+        WITH RECURSIVE sub_categories AS (
+            SELECT category_id FROM category WHERE parent_id = ?
+            UNION ALL
+            SELECT c.category_id FROM category c
+            INNER JOIN sub_categories sc ON c.parent_id = sc.category_id
+        )
+        SELECT category_id FROM sub_categories;
+    `;
+    
+    // Execute the recursive query
+    var stmt = snowflake.createStatement({sqlText: sql, binds: [CATEGORY_ID]});
+    var result = stmt.execute();
+    
+    // Delete each subcategory
+    while (result.next()) {
+        var subCategoryId = result.getColumnValue(1);
+        var deleteStmt = snowflake.createStatement({sqlText: `DELETE FROM category WHERE category_id = ?`, binds: [subCategoryId]});
+        deleteStmt.execute();
+    }
+    
+    return "Subcategories deleted successfully.";
+} catch (err) {
+    return "Error: " + err.message;
+}
+$$;
+
+INSERT INTO EVERSHOP_copy.PUBLIC.CATEGORY (CATEGORY_ID, PARENT_ID, STATUS, INCLUDE_IN_NAV)
+VALUES
+  (8, NULL, TRUE, TRUE),    -- Root category with no parent
+  (9, 8, TRUE, TRUE),       -- Subcategory with parent category_id 8
+  (10, 9, TRUE, TRUE),      -- Subcategory with parent category_id 9
+  (11, 10, TRUE, TRUE);     -- Subcategory with parent category_id 10
+
+
+
+CALL delete_sub_categories ('9');
+
