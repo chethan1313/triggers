@@ -1,3 +1,5 @@
+file name = C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.1.js
+line 5-35;
 CREATE OR REPLACE PROCEDURE update_attribute_index_and_variant_group_visibility(
     PRODUCT_ID FLOAT, 
     GROUP_ID FLOAT, 
