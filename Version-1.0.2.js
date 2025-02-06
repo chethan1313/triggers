@@ -1,84 +1,147 @@
-file=C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.2.js
+trigger file=C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.2.js
 
   line=26-65
 
-CREATE OR REPLACE FUNCTION EVERSHOP_COPY.PUBLIC.GENERATE_URL_KEY(name STRING)
+insert or update on category_description
+filename=C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.0.js
+414
+433
+452
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\category\createCategory.js
+50
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\category\updateCategory.js
+61
+
+
+insert or update on product_description
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.4.js
+68
+103
+138
+173
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\product\createProduct.js
+165
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\product\updateProduct.js
+290
+
+
+
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.GENERATE_URL_KEYS()
 RETURNS STRING
 LANGUAGE JAVASCRIPT
+EXECUTE AS CALLER
 AS
 $$
-try {
-    var input_name = arguments[0]; // Use arguments[0] to access the function parameter
+    try {
+        // Function to generate a clean URL key
+        function buildUrlKey(name) {
+            if (!name) {
+                return null;
+            }
 
-    if (!input_name) {
-        throw new Error("Name cannot be NULL");
+            // Replace non-alphanumeric characters with "-"
+            let url_key = name.replace(/[^a-zA-Z0-9]+/g, '-');
+
+            // Remove leading and trailing "-"
+            url_key = url_key.replace(/^-+|-+$/g, '');
+
+            // Convert to lowercase
+            url_key = url_key.toLowerCase();
+
+            // Append random number to ensure uniqueness
+            url_key = url_key + '-' + Math.floor(Math.random() * 1000000);
+
+            return url_key;
+        }
+
+        // Update URL_KEY for CATEGORY_DESCRIPTION where it is 'TEMP_URL_KEY'
+        var sql_command1 = `
+            UPDATE EVERSHOP_COPY.PUBLIC.CATEGORY_DESCRIPTION
+            SET URL_KEY = 
+                LOWER(REGEXP_REPLACE(NAME, '[^a-zA-Z0-9]+', '-')) || '-' || CAST(FLOOR(RANDOM() * 1000000) AS STRING)
+            WHERE URL_KEY = 'TEMP_URL_KEY' 
+            AND NAME IS NOT NULL
+            AND NOT REGEXP_LIKE(URL_KEY, '[/\\\\#]');
+        `;
+        snowflake.execute({sqlText: sql_command1});
+
+        // Update URL_KEY for PRODUCT_DESCRIPTION where it is 'TEMP_URL_KEY'
+        var sql_command2 = `
+            UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT_DESCRIPTION
+            SET URL_KEY = 
+                LOWER(REGEXP_REPLACE(NAME, '[^a-zA-Z0-9]+', '-')) || '-' || CAST(FLOOR(RANDOM() * 1000000) AS STRING)
+            WHERE URL_KEY = 'TEMP_URL_KEY' 
+            AND NAME IS NOT NULL
+            AND NOT REGEXP_LIKE(URL_KEY, '[/\\\\#]');
+        `;
+        snowflake.execute({sqlText: sql_command2});
+
+        return 'URL keys generated successfully!';
+    } catch (err) {
+        return 'Error generating URL keys: ' + err.message;
     }
-
-    // Generate a clean URL key
-    let url_key = input_name.replace(/[^a-zA-Z0-9]+/g, "-");  // Replace non-alphanumeric characters
-    url_key = url_key.replace(/^-+|-+$/g, "");               // Remove leading/trailing dashes
-    url_key = url_key.toLowerCase();                         // Convert to lowercase
-    url_key = url_key + "-" + Math.floor(Math.random() * 1000000); // Append random number
-
-    return url_key;
-} catch (err) {
-    return "ERROR: " + err.message;  // Return the actual error message
-}
 $$;
 
 
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$4
 
-
-
-CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_URL_KEY(table_name STRING)
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.GENERATE_URL_KEYS()
 RETURNS STRING
 LANGUAGE JAVASCRIPT
+EXECUTE AS CALLER
 AS
 $$
-try {
-    // Construct the dynamic SQL query string
-    var sql_command = "UPDATE " + table_name + " " +
-                      "SET URL_KEY = LOWER(REGEXP_REPLACE(NAME, '[^a-zA-Z0-9]+', '-', 'g')) || '-' || CAST(UNIFORM(100000, 999999, RANDOM()) AS STRING) " +
-                      "WHERE URL_KEY IS NULL AND NAME IS NOT NULL;";
+    try {
+        // Function to generate a clean URL key
+        function buildUrlKey(name) {
+            if (!name) {
+                return null;
+            }
 
-    // Execute the dynamic SQL
-    var stmt = snowflake.createStatement({sqlText: sql_command});
-    stmt.execute();
+            // Replace non-alphanumeric characters with "-"
+            let url_key = name.replace(/[^a-zA-Z0-9]+/g, '-');
 
-    return 'URL keys updated successfully';
-} catch (err) {
-    return 'Error: ' + err.message;
-}
+            // Remove leading and trailing "-"
+            url_key = url_key.replace(/^-+|-+$/g, '');
+
+            // Convert to lowercase
+            url_key = url_key.toLowerCase();
+
+            // Append random number to ensure uniqueness
+            url_key = url_key + '-' + Math.floor(Math.random() * 1000000);
+
+            return url_key;
+        }
+
+        // Update URL_KEY for CATEGORY_DESCRIPTION where it has the temp URL_KEY
+        var sql_command1 = `
+            UPDATE EVERSHOP_COPY.PUBLIC.CATEGORY_DESCRIPTION
+            SET URL_KEY = 
+                LOWER(REGEXP_REPLACE(NAME, '[^a-zA-Z0-9]+', '-')) || '-' || CAST(FLOOR(RANDOM() * 1000000) AS STRING)
+            WHERE URL_KEY IS NULL 
+            AND NAME IS NOT NULL
+            AND NOT REGEXP_LIKE(URL_KEY, '[/\\\\#]');
+        `;
+        snowflake.execute({sqlText: sql_command1});
+
+        // Update URL_KEY for PRODUCT_DESCRIPTION where it has the temp URL_KEY
+        var sql_command2 = `
+            UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT_DESCRIPTION
+            SET URL_KEY = 
+                LOWER(REGEXP_REPLACE(NAME, '[^a-zA-Z0-9]+', '-')) || '-' || CAST(FLOOR(RANDOM() * 1000000) AS STRING)
+            WHERE URL_KEY IS NULL 
+            AND NAME IS NOT NULL
+            AND NOT REGEXP_LIKE(URL_KEY, '[/\\\\#]');
+        `;
+        snowflake.execute({sqlText: sql_command2});
+
+        return 'URL keys generated successfully!';
+    } catch (err) {
+        return 'Error generating URL keys: ' + err.message;
+    }
 $$;
 
 
-
--- Insert into PRODUCT_DESCRIPTION
-SET url_key_value = (SELECT EVERSHOP_COPY.PUBLIC.GENERATE_URL_KEY('Smartphone - Model X'));
-INSERT INTO EVERSHOP_COPY.PUBLIC.PRODUCT_DESCRIPTION 
-(PRODUCT_DESCRIPTION_PRODUCT_ID, NAME, DESCRIPTION, SHORT_DESCRIPTION, META_TITLE, META_DESCRIPTION, META_KEYWORDS, URL_KEY)
-VALUES
-(101, 'Smartphone - Model X', 'Latest smartphone', 'Best smartphone of 2025', 'Smartphone X', 'Fastest phone', 'smartphone, mobile', 
-$url_key_value);
-
--- update into PRODUCT_DESCRIPTION
-SET url_key_value = (SELECT EVERSHOP_COPY.PUBLIC.GENERATE_URL_KEY('Smartphone - Model X'));
-UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT_DESCRIPTION
-SET URL_KEY = $url_key_value
-WHERE PRODUCT_DESCRIPTION_PRODUCT_ID = 101;
-
--- Insert into CATEGORY_DESCRIPTION
-SET url_key_value = (SELECT EVERSHOP_COPY.PUBLIC.GENERATE_URL_KEY('Smartphone - Category'));
-INSERT INTO EVERSHOP_COPY.PUBLIC.CATEGORY_DESCRIPTION 
-(CATEGORY_DESCRIPTION_CATEGORY_ID, NAME, SHORT_DESCRIPTION, DESCRIPTION, IMAGE, META_TITLE, META_DESCRIPTION, META_KEYWORDS, URL_KEY)
-VALUES
-(1001, 'Smartphone - Category', 'Best smartphones available', 'A category for the best smartphones of 2025', 'image_url_here', 'Smartphone Category', 'Explore top smartphones', 'smartphone, mobile', $url_key_value);
-
--- UPDATE into CATEGORY_DESCRIPTION
-SET url_key_value = (SELECT EVERSHOP_COPY.PUBLIC.GENERATE_URL_KEY('Smartphone - Category'));
-UPDATE EVERSHOP_COPY.PUBLIC.CATEGORY_DESCRIPTION
-SET URL_KEY = $url_key_value
-WHERE CATEGORY_DESCRIPTION_CATEGORY_ID = 1001;
 
 
 line-229-257****************************************
