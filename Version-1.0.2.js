@@ -288,50 +288,97 @@ CALL EVERSHOP_COPY.PUBLIC.UPSERT_PRODUCT_DESCRIPTION(
 
 
 
-line-229-257****************************************
+line-229-257*******************************************************************************************************************
 
-CREATE OR REPLACE PROCEDURE delete_sub_categories(category_id STRING)
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.DELETE_CATEGORY_AND_SUBCATEGORIES(
+    DATA_JSON VARIANT,  -- Not used; pass NULL
+    WHERE_JSON VARIANT  -- JSON with a key "where", e.g., {"where": "CATEGORY_ID = 123"}
+)
 RETURNS STRING
 LANGUAGE JAVASCRIPT
+EXECUTE AS CALLER
 AS
 $$
 try {
-    // Recursive CTE to find all subcategories
-    var sql = `
-        WITH RECURSIVE sub_categories AS (
-            SELECT category_id FROM category WHERE parent_id = ?
-            UNION ALL
-            SELECT c.category_id FROM category c
-            INNER JOIN sub_categories sc ON c.parent_id = sc.category_id
-        )
-        SELECT category_id FROM sub_categories;
-    `;
-    
-    // Execute the recursive query
-    var stmt = snowflake.createStatement({sqlText: sql, binds: [CATEGORY_ID]});
-    var result = stmt.execute();
-    
-    // Delete each subcategory
-    while (result.next()) {
-        var subCategoryId = result.getColumnValue(1);
-        var deleteStmt = snowflake.createStatement({sqlText: `DELETE FROM category WHERE category_id = ?`, binds: [subCategoryId]});
-        deleteStmt.execute();
-    }
-    
-    return "Subcategories deleted successfully.";
+  // Retrieve the WHERE clause from the JSON parameter.
+  var whereClause = (WHERE_JSON && WHERE_JSON.where) ? WHERE_JSON.where : null;
+  if (!whereClause) {
+    throw "WHERE clause is required for deletion.";
+  }
+  
+  // Extract the parent category ID from the WHERE clause.
+  // Assumes the WHERE clause is in the format "CATEGORY_ID = <number>"
+  var regex = /CATEGORY_ID\s*=\s*(\d+)/i;
+  var match = whereClause.match(regex);
+  if (!match) {
+    throw "Invalid WHERE clause. Could not extract CATEGORY_ID.";
+  }
+  var parentId = match[1];
+  
+  // Build a recursive query to get all sub-category IDs.
+  var cteQuery = `
+    WITH sub_categories AS (
+      SELECT category_id 
+      FROM EVERSHOP_COPY.PUBLIC.CATEGORY 
+      WHERE parent_id = ${parentId}
+      UNION ALL
+      SELECT c.category_id 
+      FROM EVERSHOP_COPY.PUBLIC.CATEGORY c
+      INNER JOIN sub_categories sc ON c.parent_id = sc.category_id
+    )
+    SELECT category_id FROM sub_categories
+  `;
+  
+  // Execute the recursive query.
+  var stmt = snowflake.createStatement({ sqlText: cteQuery });
+  var result = stmt.execute();
+  var ids = [];
+  
+  while (result.next()) {
+    ids.push(result.getColumnValue(1));
+  }
+  
+  // If any sub-category IDs were found, delete them.
+  if (ids.length > 0) {
+    var idList = ids.join(", ");
+    var deleteSubQuery = `DELETE FROM EVERSHOP_COPY.PUBLIC.CATEGORY WHERE category_id IN (${idList})`;
+    var stmt2 = snowflake.createStatement({ sqlText: deleteSubQuery });
+    stmt2.execute();
+  }
+  
+  // Delete the parent category.
+  var deleteParentQuery = `DELETE FROM EVERSHOP_COPY.PUBLIC.CATEGORY WHERE category_id = ${parentId}`;
+  var stmt3 = snowflake.createStatement({ sqlText: deleteParentQuery });
+  stmt3.execute();
+  
+  return "Success: Parent category and its subcategories deleted";
 } catch (err) {
-    return "Error: " + err.message;
+  return "Error: " + err;
 }
 $$;
 
-INSERT INTO EVERSHOP_copy.PUBLIC.CATEGORY (CATEGORY_ID, PARENT_ID, STATUS, INCLUDE_IN_NAV)
-VALUES
-  (8, NULL, TRUE, TRUE),    -- Root category with no parent
-  (9, 8, TRUE, TRUE),       -- Subcategory with parent category_id 8
-  (10, 9, TRUE, TRUE),      -- Subcategory with parent category_id 9
-  (11, 10, TRUE, TRUE);     -- Subcategory with parent category_id 10
+CALL EVERSHOP_COPY.PUBLIC.DELETE_CATEGORY_AND_SUBCATEGORIES(
+    NULL,
+    PARSE_JSON('{ "where": "CATEGORY_ID = 6" }')
+);
 
 
+-- Insert a root category (parent)
+INSERT INTO EVERSHOP_COPY.PUBLIC.CATEGORY (STATUS, PARENT_ID, INCLUDE_IN_NAV, POSITION, SHOW_PRODUCTS)
+VALUES (TRUE, NULL, TRUE, 1, TRUE);
 
-CALL delete_sub_categories ('9');
+-- Insert a sub-category of Category 1
+INSERT INTO EVERSHOP_COPY.PUBLIC.CATEGORY (STATUS, PARENT_ID, INCLUDE_IN_NAV, POSITION, SHOW_PRODUCTS)
+VALUES (TRUE, 1, TRUE, 1, TRUE);
 
+-- Insert another sub-category of Category 1
+INSERT INTO EVERSHOP_COPY.PUBLIC.CATEGORY (STATUS, PARENT_ID, INCLUDE_IN_NAV, POSITION, SHOW_PRODUCTS)
+VALUES (TRUE, 1, TRUE, 2, TRUE);
+
+-- Insert a sub-category of Category 2
+INSERT INTO EVERSHOP_COPY.PUBLIC.CATEGORY (STATUS, PARENT_ID, INCLUDE_IN_NAV, POSITION, SHOW_PRODUCTS)
+VALUES (TRUE, 2, TRUE, 1, TRUE);
+
+-- Insert a sub-category of Category 3
+INSERT INTO EVERSHOP_COPY.PUBLIC.CATEGORY (STATUS, PARENT_ID, INCLUDE_IN_NAV, POSITION, SHOW_PRODUCTS)
+VALUES (TRUE, 3, TRUE, 1, TRUE);
