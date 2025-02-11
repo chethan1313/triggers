@@ -2,6 +2,16 @@ file name=C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\ev
 
 line=6-24
 
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\product\updateProduct.js
+43
+350 for productdata
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\checkout\migration\Version-1.0.2.js
+14
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\oms\services\cancelOrder.js
+50
+
+
+
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_PRODUCT_INVENTORY_WITH_EVENT(
     DATA_JSON VARIANT,   -- JSON with update field-value pairs
     WHERE_JSON VARIANT   -- JSON with a key "where" containing the WHERE clause (e.g., {"where": "PRODUCT_INVENTORY_ID = 101"})
