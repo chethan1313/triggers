@@ -2,6 +2,10 @@ filename=C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\eve
 
 line=6-24
 
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\checkout\services\orderCreator.js
+150
+
+
 
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.INSERT_SALES_ORDER_WITH_EVENT(
     DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into SALES_ORDER
