@@ -2,100 +2,111 @@ file name=C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\ev
 
 line=6-31
 
-CREATE OR REPLACE PROCEDURE REDUCE_PRODUCT_STOCK_ON_ORDER1(
-    PRODUCT_ID STRING,  
-    QTY STRING         
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.INSERT_ORDER_ITEM_AND_UPDATE_PRODUCT_INVENTORY(
+    DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into ORDER_ITEM
 )
 RETURNS STRING
 LANGUAGE JAVASCRIPT
 EXECUTE AS CALLER
-AS $$
+AS
+$$
 try {
-    var productId = Number(PRODUCT_ID);
-    var orderQty = Number(QTY);
-
-    // Start transaction
-    snowflake.execute({ sqlText: `BEGIN TRANSACTION;` });
-
-    // Check if the product exists and manages stock
-    var checkStmt = snowflake.createStatement({
-        sqlText: `
-            SELECT QTY, MANAGE_STOCK 
-            FROM EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY 
-            WHERE PRODUCT_INVENTORY_PRODUCT_ID = ?;`,
-        binds: [productId]
-    });
-    var checkResult = checkStmt.execute();
-
-    if (!checkResult.next()) {
-        throw `Error: Product ID ${productId} does not exist.`;
+    // --- 1. Build and execute the INSERT into ORDER_ITEM ---
+    var data = DATA_JSON;
+    var columns = [];
+    var values = [];
+    
+    for (var key in data) {
+        columns.push(key);
+        var val = data[key];
+        if (typeof val === 'string') {
+            // Escape single quotes in string values.
+            val = val.replace(/'/g, "''");
+            values.push("'" + val + "'");
+        } else if (typeof val === 'boolean') {
+            values.push(val ? "TRUE" : "FALSE");
+        } else if (val === null) {
+            values.push("NULL");
+        } else {
+            values.push(val.toString());
+        }
     }
-
-    var currentStock = checkResult.getColumnValue(1);
-    var managesStock = checkResult.getColumnValue(2);
-
-    // Ensure the product manages stock
-    if (!managesStock) {
-        throw `Error: Product ID ${productId} does not manage stock.`;
+    
+    var insertQuery = "INSERT INTO EVERSHOP_COPY.PUBLIC.ORDER_ITEM (" 
+                      + columns.join(", ") 
+                      + ") VALUES (" 
+                      + values.join(", ") 
+                      + ")";
+    
+    var stmtInsert = snowflake.createStatement({ sqlText: insertQuery });
+    stmtInsert.execute();
+    
+    // --- 2. Retrieve the newly inserted ORDER_ITEM row ---
+    // (Assuming no concurrent inserts, we pick the row with the highest ORDER_ITEM_ID)
+    var selectQuery = "SELECT * FROM EVERSHOP_COPY.PUBLIC.ORDER_ITEM ORDER BY ORDER_ITEM_ID DESC LIMIT 1";
+    var stmtSelect = snowflake.createStatement({ sqlText: selectQuery });
+    var resultSelect = stmtSelect.execute();
+    
+    if (!resultSelect.next()) {
+        throw "No inserted order item found.";
     }
-
-    // Check if enough stock is available
-    if (currentStock < orderQty) {
-        throw `Error: Insufficient stock for Product ID ${productId}. Available: ${currentStock}, Requested: ${orderQty}`;
+    
+    var insertedRow = {};
+    var colCount = resultSelect.getColumnCount();
+    for (var i = 1; i <= colCount; i++) {
+        var colName = resultSelect.getColumnName(i);
+        insertedRow[colName] = resultSelect.getColumnValue(i);
     }
-
-    // Reduce stock and update availability
-    var updateStmt = snowflake.createStatement({
-        sqlText: `
-            UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY 
-            SET QTY = QTY - ?, 
-                STOCK_AVAILABILITY = CASE WHEN QTY - ? > 0 THEN TRUE ELSE FALSE END
-            WHERE PRODUCT_INVENTORY_PRODUCT_ID = ?;`,
-        binds: [orderQty, orderQty, productId]
-    });
-
-    var updateResult = updateStmt.execute();
-
-    if (updateResult.getRowCount() === 0) {
-        throw `Error: Failed to update stock for Product ID ${productId}.`;
+    
+    // --- 3. Update the PRODUCT_INVENTORY table ---
+    // Extract the PRODUCT_ID and order QTY from the inserted order item.
+    var prodId = insertedRow["PRODUCT_ID"];
+    var orderQty = insertedRow["QTY"];
+    
+    if (prodId === null || orderQty === null) {
+        throw "Inserted order item does not have PRODUCT_ID or QTY.";
     }
-
-    // Commit transaction
-    snowflake.execute({ sqlText: `COMMIT;` });
-
-    return `Success: Stock reduced for Product ID ${productId}. New stock: ${currentStock - orderQty}`;
+    
+    var updateQuery = "UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY SET QTY = QTY - " 
+                      + orderQty 
+                      + " WHERE PRODUCT_INVENTORY_PRODUCT_ID = " + prodId 
+                      + " AND MANAGE_STOCK = TRUE";
+    var stmtUpdate = snowflake.createStatement({ sqlText: updateQuery });
+    stmtUpdate.execute();
+    
+    // --- 4. Return the PRODUCT_ID ---
+    return prodId;
 } catch (err) {
-    snowflake.execute({ sqlText: `ROLLBACK;` });
-    return err;
+    throw "Error: " + err;
 }
 $$;
 
 
 
-INSERT INTO EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY (PRODUCT_INVENTORY_PRODUCT_ID, QTY, MANAGE_STOCK, STOCK_AVAILABILITY) 
-VALUES 
-    (101, 50, TRUE, TRUE),  -- Product with stock
-    (102, 10, TRUE, TRUE),  -- Product with low stock
-    (103, 0, TRUE, FALSE),  -- Out-of-stock product
-    (104, 30, FALSE, TRUE); -- Product that does NOT manage stock
+INSERT INTO EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY (
+    PRODUCT_INVENTORY_PRODUCT_ID, QTY, MANAGE_STOCK, STOCK_AVAILABILITY
+)
+VALUES (101, 50, TRUE, FALSE);
 
 
-INSERT INTO EVERSHOP_COPY.PUBLIC.ORDER_ITEM (
-    ORDER_ITEM_ORDER_ID, PRODUCT_ID, PRODUCT_SKU, PRODUCT_NAME, QTY, 
-    PRODUCT_PRICE, PRODUCT_PRICE_INCL_TAX, FINAL_PRICE, FINAL_PRICE_INCL_TAX, 
-    TAX_PERCENT, TAX_AMOUNT, TAX_AMOUNT_BEFORE_DISCOUNT, DISCOUNT_AMOUNT, 
-    LINE_TOTAL, LINE_TOTAL_WITH_DISCOUNT, LINE_TOTAL_INCL_TAX, 
-    LINE_TOTAL_WITH_DISCOUNT_INCL_TAX
-) 
-VALUES 
-    (201, 101, 'SKU-101', 'Product A', 5, 20.00, 22.00, 100.00, 110.00, 
-     10.00, 10.00, 10.00, 5.00, 100.00, 95.00, 110.00, 105.00),
-    
-    (202, 102, 'SKU-102', 'Product B', 2, 50.00, 55.00, 100.00, 110.00, 
-     5.00, 5.00, 5.00, 2.00, 100.00, 98.00, 110.00, 108.00);
-
-
-CALL REDUCE_PRODUCT_STOCK_ON_ORDER1('101', '5'); -- Should succeed
-CALL REDUCE_PRODUCT_STOCK_ON_ORDER1('102', '2'); -- Should succeed
-CALL REDUCE_PRODUCT_STOCK_ON_ORDER1('103', '1'); -- Should fail (Insufficient stock)
-CALL REDUCE_PRODUCT_STOCK_ON_ORDER1('104', '3'); -- Should fail (Does not manage stock)
+CALL EVERSHOP_COPY.PUBLIC.INSERT_ORDER_ITEM_AND_UPDATE_PRODUCT_INVENTORY(
+    PARSE_JSON('{
+        "ORDER_ITEM_ORDER_ID": 500,
+        "PRODUCT_ID": 101,
+        "PRODUCT_SKU": "SKU-101",
+        "PRODUCT_NAME": "Test Product",
+        "QTY": 40,
+        "PRODUCT_PRICE": 100.00,
+        "PRODUCT_PRICE_INCL_TAX": 110.00,
+        "FINAL_PRICE": 100.00,
+        "FINAL_PRICE_INCL_TAX": 110.00,
+        "TAX_PERCENT": 10.0,
+        "TAX_AMOUNT": 10.00,
+        "TAX_AMOUNT_BEFORE_DISCOUNT": 10.00,
+        "DISCOUNT_AMOUNT": 0.00,
+        "LINE_TOTAL": 300.00,
+        "LINE_TOTAL_WITH_DISCOUNT": 300.00,
+        "LINE_TOTAL_INCL_TAX": 330.00,
+        "LINE_TOTAL_WITH_DISCOUNT_INCL_TAX": 330.00
+    }')
+);
