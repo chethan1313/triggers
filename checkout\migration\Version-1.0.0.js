@@ -2,146 +2,125 @@ filename=C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\eve
 
 line=271-290
 
-CREATE OR REPLACE PROCEDURE REDUCE_PRODUCT_STOCK_ON_ORDER(
-    PRODUCT_ID STRING,  -- Use STRING instead of NUMBER
-    QTY STRING         -- Use STRING instead of NUMBER
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\checkout\services\orderCreator.js
+172
+
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.INSERT_ORDER_ITEM_AND_UPDATE_PRODUCT(
+    DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into ORDER_ITEM
 )
-RETURNS STRING
+RETURNS VARIANT
 LANGUAGE JAVASCRIPT
 EXECUTE AS CALLER
-AS $$
+AS
+$$
 try {
-    // Convert input strings to numbers
-    var productId = Number(PRODUCT_ID);
-    var orderQty = Number(QTY);
-
-    // Start transaction
-    snowflake.execute({ sqlText: `BEGIN TRANSACTION;` });
-
-    // 1. Check if the product exists and manages stock
-    var checkStmt = snowflake.createStatement({
-        sqlText: `
-            SELECT COUNT(*) 
-            FROM EVERSHOP_COPY.PUBLIC.PRODUCT 
-            WHERE PRODUCT_ID = ? 
-              AND STATUS = TRUE;`, // STATUS TRUE indicates that stock is managed
-        binds: [productId]
-    });
-    var checkResult = checkStmt.execute();
-    checkResult.next();
-    var productExists = checkResult.getColumnValue(1);
-
-    if (productExists === 0) {
-        throw "Product does not exist or is not active.";
+    // --- 1. Insert a new order item into ORDER_ITEM ---
+    var data = DATA_JSON;
+    var columns = [];
+    var values = [];
+    
+    // Build column names and values from the JSON object.
+    for (var key in data) {
+        columns.push(key);
+        var val = data[key];
+        if (typeof val === 'string') {
+            // Escape any single quotes.
+            val = val.replace(/'/g, "''");
+            values.push("'" + val + "'");
+        } else if (typeof val === 'boolean') {
+            values.push(val ? "TRUE" : "FALSE");
+        } else if (val === null) {
+            values.push("NULL");
+        } else {
+            values.push(val.toString());
+        }
     }
-
-    // 2. Retrieve the current stock quantity
-    var stockStmt = snowflake.createStatement({
-        sqlText: `
-            SELECT QTY 
-            FROM EVERSHOP_COPY.PUBLIC.PRODUCT 
-            WHERE PRODUCT_ID = ?;`,
-        binds: [productId]
-    });
-    var stockResult = stockStmt.execute();
-    stockResult.next();
-    var currentStock = stockResult.getColumnValue(1);
-
-    // 3. Check if enough stock is available
-    if (currentStock < orderQty) {
-        throw "Insufficient stock available.";
+    
+    var insertQuery = "INSERT INTO EVERSHOP_COPY.PUBLIC.ORDER_ITEM (" 
+                      + columns.join(", ") 
+                      + ") VALUES (" 
+                      + values.join(", ") 
+                      + ")";
+    
+    var stmtInsert = snowflake.createStatement({ sqlText: insertQuery });
+    stmtInsert.execute();
+    
+    // --- 2. Retrieve the newly inserted order item ---
+    // (Assuming no concurrent inserts, we select the row with the highest ORDER_ITEM_ID.)
+    var selectQuery = "SELECT * FROM EVERSHOP_COPY.PUBLIC.ORDER_ITEM ORDER BY ORDER_ITEM_ID DESC LIMIT 1";
+    var stmtSelect = snowflake.createStatement({ sqlText: selectQuery });
+    var resultSelect = stmtSelect.execute();
+    if (!resultSelect.next()) {
+        throw "No inserted order item found.";
     }
-
-    // 4. Reduce the product stock
-    var updateStmt = snowflake.createStatement({
-        sqlText: `
-            UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT 
-            SET QTY = QTY - ? 
-            WHERE PRODUCT_ID = ?;`,
-        binds: [orderQty, productId]
-    });
-    var updateResult = updateStmt.execute();
-
-    // 5. Verify the stock was updated
-    if (updateResult.getRowCount() === 0) {
-        throw "Failed to update product stock.";
+    
+    var insertedRow = {};
+    var colCount = resultSelect.getColumnCount();
+    for (var i = 1; i <= colCount; i++) {
+        var colName = resultSelect.getColumnName(i);
+        insertedRow[colName] = resultSelect.getColumnValue(i);
     }
-
-    // Commit transaction
-    snowflake.execute({ sqlText: `COMMIT;` });
-    return "Product stock reduced successfully.";
+    
+    // --- 3. Update the PRODUCT table stock ---
+    // Extract PRODUCT_ID and QTY from the inserted order item.
+    var prodId = insertedRow["PRODUCT_ID"];
+    var orderQty = insertedRow["QTY"];
+    
+    if (prodId === null || orderQty === null) {
+        throw "Inserted order item does not have PRODUCT_ID or QTY.";
+    }
+    
+    // Update the product's quantity by subtracting the ordered quantity.
+    var updateProductQuery = "UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT SET QTY = QTY - " 
+                             + orderQty 
+                             + " WHERE PRODUCT_ID = " + prodId;
+    var stmtUpdateProd = snowflake.createStatement({ sqlText: updateProductQuery });
+    stmtUpdateProd.execute();
+    
+    // --- 4. Return the inserted order item as a VARIANT ---
+    return prodId ;
 } catch (err) {
-    // Rollback on error
-    snowflake.execute({ sqlText: `ROLLBACK;` });
     return "Error: " + err;
 }
 $$;
 
-INSERT INTO EVERSHOP_COPY.PUBLIC.ORDER_ITEM (
-    ORDER_ITEM_ORDER_ID, 
-    PRODUCT_ID, 
-    PRODUCT_SKU, 
-    PRODUCT_NAME, 
-    QTY, 
-    PRODUCT_PRICE, 
-    PRODUCT_PRICE_INCL_TAX, 
-    FINAL_PRICE, 
-    FINAL_PRICE_INCL_TAX, 
-    TAX_PERCENT, 
-    TAX_AMOUNT, 
-    TAX_AMOUNT_BEFORE_DISCOUNT, 
-    DISCOUNT_AMOUNT, 
-    LINE_TOTAL, 
-    LINE_TOTAL_WITH_DISCOUNT, 
-    LINE_TOTAL_INCL_TAX, 
-    LINE_TOTAL_WITH_DISCOUNT_INCL_TAX, 
-    VARIANT_GROUP_ID, 
-    VARIANT_OPTIONS, 
-    PRODUCT_CUSTOM_OPTIONS, 
-    REQUESTED_DATA
-) 
-VALUES (
-    1,                       -- ORDER_ITEM_ORDER_ID
-    1,                       -- PRODUCT_ID
-    'PROD1',                 -- PRODUCT_SKU
-    'Laptop',                -- PRODUCT_NAME
-    3,                       -- QTY
-    999.99,                  -- PRODUCT_PRICE
-    999.99,                  -- PRODUCT_PRICE_INCL_TAX
-    2999.97,                 -- FINAL_PRICE (3 * 999.99)
-    2999.97,                 -- FINAL_PRICE_INCL_TAX
-    10.00,                   -- TAX_PERCENT
-    300.00,                  -- TAX_AMOUNT
-    250.00,                  -- TAX_AMOUNT_BEFORE_DISCOUNT
-    50.00,                   -- DISCOUNT_AMOUNT
-    2999.97,                 -- LINE_TOTAL
-    2999.97,                 -- LINE_TOTAL_WITH_DISCOUNT
-    3299.97,                 -- LINE_TOTAL_INCL_TAX (after tax)
-    3299.97,                 -- LINE_TOTAL_WITH_DISCOUNT_INCL_TAX
-    NULL,                    -- VARIANT_GROUP_ID (or provide value)
-    NULL,                    -- VARIANT_OPTIONS (or provide value)
-    NULL,                    -- PRODUCT_CUSTOM_OPTIONS (or provide value)
-    NULL                     -- REQUESTED_DATA (or provide value)
-);
 
 
--- Insert a sample product with the required values
 INSERT INTO EVERSHOP_COPY.PUBLIC.PRODUCT (
-    PRODUCT_ID,
-    SKU, 
-    PRICE, 
-    STATUS, 
-    QTY
-    
-) 
+    SKU,
+    PRICE,
+    QTY,
+    TYPE,
+    STATUS
+)
 VALUES (
-     1,
-    'PROD1',    -- SKU
-    999.99,     -- Price
-    TRUE,       -- Status (TRUE means the product is active and manages stock)
-    100     -- Quantity (Initial stock)
-    
+    'SKU-101',
+    100.00,
+    50,         -- initial stock quantity
+    'simple',
+    TRUE
 );
 
 
-CALL EVERSHOP_COPY.PUBLIC.REDUCE_PRODUCT_STOCK_ON_ORDER(1, 2);
+CALL EVERSHOP_COPY.PUBLIC.INSERT_ORDER_ITEM_AND_UPDATE_PRODUCT(
+    PARSE_JSON('{
+        "ORDER_ITEM_ORDER_ID": 500,
+        "PRODUCT_ID": 601,
+        "PRODUCT_SKU": "SKU-101",
+        "PRODUCT_NAME": "Test Product",
+        "QTY": 1,
+        "PRODUCT_PRICE": 100.00,
+        "PRODUCT_PRICE_INCL_TAX": 110.00,
+        "FINAL_PRICE": 100.00,
+        "FINAL_PRICE_INCL_TAX": 110.00,
+        "TAX_PERCENT": 10.0,
+        "TAX_AMOUNT": 10.00,
+        "TAX_AMOUNT_BEFORE_DISCOUNT": 10.00,
+        "DISCOUNT_AMOUNT": 0.00,
+        "LINE_TOTAL": 300.00,
+        "LINE_TOTAL_WITH_DISCOUNT": 300.00,
+        "LINE_TOTAL_INCL_TAX": 330.00,
+        "LINE_TOTAL_WITH_DISCOUNT_INCL_TAX": 330.00
+    }')
+);
+
