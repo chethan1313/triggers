@@ -295,7 +295,6 @@ C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src
 14
 
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.DELETE_CATEGORY_AND_SUBCATEGORIES(
-    DATA_JSON VARIANT,  -- Not used; pass NULL
     WHERE_JSON VARIANT  -- JSON with a key "where", e.g., {"where": "CATEGORY_ID = 123"}
 )
 RETURNS STRING
