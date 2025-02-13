@@ -1,0 +1,522 @@
+filename= C:\Users\Chethan\Downloads\origial11111\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.2.js
+line=82-205
+
+
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.0.js
+407
+426
+445
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\category\createCategory.js
+49
+
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.INSERT_CATEGORY_WITH_EVENT(
+    DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into CATEGORY
+)
+RETURNS VARIANT
+LANGUAGE JAVASCRIPT
+EXECUTE AS CALLER
+AS
+$$
+try {
+    // 1. Build the dynamic INSERT statement for CATEGORY.
+    var data = DATA_JSON;
+    var columns = [];
+    var values = [];
+    
+    for (var key in data) {
+        columns.push(key);
+        var val = data[key];
+        if (typeof val === 'string') {
+            // Escape single quotes.
+            val = val.replace(/'/g, "''");
+            values.push("'" + val + "'");
+        } else if (typeof val === 'boolean') {
+            values.push(val ? "TRUE" : "FALSE");
+        } else if (val === null) {
+            values.push("NULL");
+        } else {
+            values.push(val.toString());
+        }
+    }
+    
+    var insertSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.CATEGORY (" 
+                    + columns.join(", ") 
+                    + ") VALUES (" 
+                    + values.join(", ") 
+                    + ")";
+                    
+    var stmtInsert = snowflake.createStatement({ sqlText: insertSQL });
+    stmtInsert.execute();
+    
+    // 2. Retrieve the newly inserted CATEGORY row.
+    // (Assumes no concurrent inserts; we select the row with the highest CATEGORY_ID.)
+    var selectSQL = "SELECT * FROM EVERSHOP_COPY.PUBLIC.CATEGORY ORDER BY CATEGORY_ID DESC LIMIT 1";
+    var stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    var result = stmtSelect.execute();
+    if (!result.next()) {
+        throw "No inserted category found.";
+    }
+    
+    var insertedRow = {};
+    var colCount = result.getColumnCount();
+    for (var i = 1; i <= colCount; i++) {
+        var colName = result.getColumnName(i);
+        insertedRow[colName] = result.getColumnValue(i);
+    }
+    
+    // 3. Log an event in the EVENT table.
+    // Convert the inserted row to a JSON string.
+    var eventDataStr = JSON.stringify(insertedRow);
+    // Escape any single quotes so it can be safely inlined.
+    eventDataStr = eventDataStr.replace(/'/g, "''");
+    
+    var eventSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
+                   "SELECT 'category_created', PARSE_JSON('" + eventDataStr + "')";
+    var stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
+    stmtEvent.execute();
+    
+    // 4. Return the inserted row as a VARIANT (mimicking RETURN NEW).
+    return JSON.parse(JSON.stringify(insertedRow));
+    
+} catch (err) {
+    return "Error: " + err;
+}
+$$;
+
+
+CALL EVERSHOP_COPY.PUBLIC.INSERT_CATEGORY_WITH_EVENT(
+    PARSE_JSON('{
+        "STATUS": true,
+        "PARENT_ID": 0,
+        "INCLUDE_IN_NAV": true,
+        "POSITION": 1,
+        "SHOW_PRODUCTS": true
+    }')
+);
+
+
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\category\updateCategory.js
+50
+
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_CATEGORY_WITH_EVENT(
+    DATA_JSON VARIANT,   -- JSON with key-value pairs for fields to update in CATEGORY
+    WHERE_JSON VARIANT   -- JSON with a key "where" containing the WHERE clause (e.g., {"where": "CATEGORY_ID = 123"})
+)
+RETURNS VARIANT
+LANGUAGE JAVASCRIPT
+EXECUTE AS CALLER
+AS
+$$
+try {
+    // 1. Extract the WHERE clause.
+    var whereClause = (WHERE_JSON && WHERE_JSON.where) ? WHERE_JSON.where : null;
+    if (!whereClause) {
+         throw "WHERE clause is required for update.";
+    }
+    
+    // 2. Build the dynamic UPDATE statement for the CATEGORY table.
+    var data = DATA_JSON;
+    var setClauses = [];
+    for (var key in data) {
+         var val = data[key];
+         if (typeof val === "string") {
+             // Escape single quotes.
+             val = val.replace(/'/g, "''");
+             setClauses.push(key + " = '" + val + "'");
+         } else if (typeof val === "boolean") {
+             setClauses.push(key + " = " + (val ? "TRUE" : "FALSE"));
+         } else if (val === null) {
+             setClauses.push(key + " = NULL");
+         } else {
+             setClauses.push(key + " = " + val.toString());
+         }
+    }
+    
+    var updateSQL = "UPDATE EVERSHOP_COPY.PUBLIC.CATEGORY SET " 
+                    + setClauses.join(", ") 
+                    + " WHERE " + whereClause;
+    var stmtUpdate = snowflake.createStatement({ sqlText: updateSQL });
+    stmtUpdate.execute();
+    
+    // 3. Retrieve the updated CATEGORY row.
+    var selectSQL = "SELECT * FROM EVERSHOP_COPY.PUBLIC.CATEGORY WHERE " + whereClause + " LIMIT 1";
+    var stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    var resultSelect = stmtSelect.execute();
+    if (!resultSelect.next()) {
+         throw "No category found for update.";
+    }
+    var updatedRow = {};
+    var colCount = resultSelect.getColumnCount();
+    for (var i = 1; i <= colCount; i++) {
+         var colName = resultSelect.getColumnName(i);
+         updatedRow[colName] = resultSelect.getColumnValue(i);
+    }
+    
+    // 4. Log an event in the EVENT table.
+    var eventDataStr = JSON.stringify(updatedRow);
+    // Escape single quotes in the JSON string for safe inlining.
+    eventDataStr = eventDataStr.replace(/'/g, "''");
+    
+    var eventSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
+                   "SELECT 'category_updated', PARSE_JSON('" + eventDataStr + "')";
+    var stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
+    stmtEvent.execute();
+    
+    // 5. Return the updated row as a VARIANT.
+    return JSON.parse(JSON.stringify(updatedRow));
+    
+} catch (err) {
+    // Optionally, explicitly rollback if needed.
+    // try {
+    //      var rollbackStmt = snowflake.createStatement({ sqlText: "ROLLBACK" });
+    //      rollbackStmt.execute();
+    // } catch (rErr) {
+    //      // Log rollback error if needed.
+    // }
+    return "Error: " + err;
+}
+$$;
+
+
+CALL EVERSHOP_COPY.PUBLIC.UPDATE_CATEGORY_WITH_EVENT(
+    PARSE_JSON('{"STATUS": false, "POSITION": 2}'),
+    PARSE_JSON('{"where": "CATEGORY_ID = 101"}')
+);
+
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\category\deleteCategory.js
+14
+
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.DELETE_CATEGORY_WITH_EVENT(
+    WHERE_JSON VARIANT  -- JSON with a key "where", e.g. {"where": "CATEGORY_ID = 101"}
+)
+RETURNS VARIANT
+LANGUAGE JAVASCRIPT
+EXECUTE AS CALLER
+AS
+$$
+try {
+    // 1. Extract the WHERE clause.
+    var whereClause = (WHERE_JSON && WHERE_JSON.where) ? WHERE_JSON.where : null;
+    if (!whereClause) {
+        throw "WHERE clause is required for deletion.";
+    }
+    
+    // 2. Retrieve the category rows to be deleted.
+    var selectSQL = "SELECT * FROM EVERSHOP_COPY.PUBLIC.CATEGORY WHERE " + whereClause;
+    var stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    var result = stmtSelect.execute();
+    
+    var rowsToDelete = [];
+    while (result.next()){
+        var row = {};
+        var colCount = result.getColumnCount();
+        for (var i = 1; i <= colCount; i++){
+            var colName = result.getColumnName(i);
+            row[colName] = result.getColumnValue(i);
+        }
+        rowsToDelete.push(row);
+    }
+    
+    if (rowsToDelete.length === 0) {
+        throw "No category found for the given WHERE clause.";
+    }
+    
+    // 3. Log the deletion event in the EVENT table.
+    // Convert the deleted rows array into a JSON string.
+    var eventDataStr = JSON.stringify(rowsToDelete);
+    // Escape any single quotes for safe inlining.
+    eventDataStr = eventDataStr.replace(/'/g, "''");
+    
+    var eventSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
+                   "SELECT 'category_deleted', PARSE_JSON('" + eventDataStr + "')";
+    var stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
+    stmtEvent.execute();
+    
+    // 4. Delete the rows from the CATEGORY table.
+    var deleteSQL = "DELETE FROM EVERSHOP_COPY.PUBLIC.CATEGORY WHERE " + whereClause;
+    var stmtDelete = snowflake.createStatement({ sqlText: deleteSQL });
+    stmtDelete.execute();
+    
+    // 5. Return the details of the deleted rows as a JSON array.
+    return JSON.parse(JSON.stringify(rowsToDelete));
+    
+} catch (err) {
+    return "Error: " + err;
+}
+$$;
+
+CALL EVERSHOP_COPY.PUBLIC.DELETE_CATEGORY_WITH_EVENT(
+    PARSE_JSON('{ "where": "CATEGORY_ID = 101" }')
+);
+
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.4.js
+46
+81
+116
+151
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\product\createProduct.js
+164
+
+
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.INSERT_PRODUCT_WITH_EVENT(
+    DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into PRODUCT
+)
+RETURNS VARIANT
+LANGUAGE JAVASCRIPT
+EXECUTE AS CALLER
+AS
+$$
+try {
+    // --- 1. Build the dynamic INSERT statement for the PRODUCT table ---
+    var data = DATA_JSON;
+    var columns = [];
+    var values = [];
+    
+    for (var key in data) {
+        columns.push(key);
+        var val = data[key];
+        if (typeof val === "string") {
+            // Escape single quotes.
+            val = val.replace(/'/g, "''");
+            values.push("'" + val + "'");
+        } else if (typeof val === "boolean") {
+            values.push(val ? "TRUE" : "FALSE");
+        } else if (val === null) {
+            values.push("NULL");
+        } else {
+            values.push(val.toString());
+        }
+    }
+    
+    var insertSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.PRODUCT (" 
+                    + columns.join(", ") 
+                    + ") VALUES (" 
+                    + values.join(", ") 
+                    + ")";
+                    
+    var stmtInsert = snowflake.createStatement({ sqlText: insertSQL });
+    stmtInsert.execute();
+    
+    // --- 2. Retrieve the newly inserted product row ---
+    // (Assuming no concurrent inserts, we select the row with the highest PRODUCT_ID.)
+    var selectSQL = "SELECT * FROM EVERSHOP_COPY.PUBLIC.PRODUCT ORDER BY PRODUCT_ID DESC LIMIT 1";
+    var stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    var resultSelect = stmtSelect.execute();
+    if (!resultSelect.next()) {
+        throw "No inserted product found.";
+    }
+    
+    var insertedRow = {};
+    var colCount = resultSelect.getColumnCount();
+    for (var i = 1; i <= colCount; i++) {
+        var colName = resultSelect.getColumnName(i);
+        insertedRow[colName] = resultSelect.getColumnValue(i);
+    }
+    
+    // --- 3. Log an event into the EVENT table ---
+    // Convert the inserted row into a JSON string.
+    var eventDataStr = JSON.stringify(insertedRow);
+    // Escape single quotes for safe inlining.
+    eventDataStr = eventDataStr.replace(/'/g, "''");
+    
+    var eventSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
+                   "SELECT 'product_created', PARSE_JSON('" + eventDataStr + "')";
+    var stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
+    stmtEvent.execute();
+    
+    // --- 4. Return the inserted product row as a VARIANT (mimicking RETURN NEW) ---
+    return JSON.parse(JSON.stringify(insertedRow));
+    
+} catch (err) {
+    return "Error: " + err;
+}
+$$;
+
+
+CALL EVERSHOP_COPY.PUBLIC.INSERT_PRODUCT_WITH_EVENT(
+    PARSE_JSON('{
+        "SKU": "SKU-XYZ-001",
+        "PRICE": 99.99,
+        "STATUS": true,
+        "GROUP_ID": 2,
+        "VARIANT_GROUP_ID": 5,
+        "TYPE": "simple"
+    }')
+);
+
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\api\addVariantItem\[bodyParser]addItem.js
+61
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\api\unlinkVariant\unlinkVariants.js
+14
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\product\updateProduct.js
+279
+311
+
+
+
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_PRODUCT_WITH_EVENT(
+    DATA_JSON VARIANT,   -- JSON with fields to update (e.g., {"PRICE": 150.00, "STATUS": true})
+    WHERE_JSON VARIANT   -- JSON with a key "where" containing the WHERE clause (e.g., {"where": "PRODUCT_ID = 101"})
+)
+RETURNS VARIANT
+LANGUAGE JAVASCRIPT
+EXECUTE AS CALLER
+AS
+$$
+try {
+    // 1. Extract the WHERE clause.
+    var whereClause = (WHERE_JSON && WHERE_JSON.where) ? WHERE_JSON.where : null;
+    if (!whereClause) {
+         throw "WHERE clause is required for update.";
+    }
+    
+    // 2. Build the dynamic UPDATE statement for the PRODUCT table.
+    var data = DATA_JSON;
+    var setClauses = [];
+    for (var key in data) {
+         var val = data[key];
+         if (typeof val === "string") {
+             // Escape single quotes.
+             val = val.replace(/'/g, "''");
+             setClauses.push(key + " = '" + val + "'");
+         } else if (typeof val === "boolean") {
+             setClauses.push(key + " = " + (val ? "TRUE" : "FALSE"));
+         } else if (val === null) {
+             setClauses.push(key + " = NULL");
+         } else {
+             setClauses.push(key + " = " + val.toString());
+         }
+    }
+    
+    var updateSQL = "UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT SET " 
+                    + setClauses.join(", ") 
+                    + " WHERE " + whereClause;
+    var stmtUpdate = snowflake.createStatement({ sqlText: updateSQL });
+    stmtUpdate.execute();
+    
+    // 3. Retrieve the updated PRODUCT row.
+    var selectSQL = "SELECT * FROM EVERSHOP_COPY.PUBLIC.PRODUCT WHERE " + whereClause + " LIMIT 1";
+    var stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    var resultSelect = stmtSelect.execute();
+    if (!resultSelect.next()) {
+         throw "No product found for update.";
+    }
+    var updatedRow = {};
+    var colCount = resultSelect.getColumnCount();
+    for (var i = 1; i <= colCount; i++) {
+         var colName = resultSelect.getColumnName(i);
+         updatedRow[colName] = resultSelect.getColumnValue(i);
+    }
+    
+    // 4. Log an event in the EVENT table.
+    // Convert the updated row to a JSON string.
+    var eventDataStr = JSON.stringify(updatedRow);
+    // Escape single quotes for safe inlining.
+    eventDataStr = eventDataStr.replace(/'/g, "''");
+    
+    var eventSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
+                   "SELECT 'product_updated', PARSE_JSON('" + eventDataStr + "')";
+    var stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
+    stmtEvent.execute();
+    
+    // 5. Return the updated product row as a VARIANT.
+    return JSON.parse(JSON.stringify(updatedRow));
+    
+} catch (err) {
+    // Optionally, explicitly rollback if required (Snowflake auto-rollbacks on error).
+    return "Error: " + err;
+}
+$$;
+
+CALL EVERSHOP_COPY.PUBLIC.UPDATE_PRODUCT_WITH_EVENT(
+    PARSE_JSON('{"PRICE": 555555.00, "STATUS":false}'),
+    PARSE_JSON('{"where": "PRODUCT_ID = 702"}')
+);
+
+
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\product\deleteProduct.js
+13
+
+CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.DELETE_PRODUCT_WITH_EVENT(
+    WHERE_JSON VARIANT  -- JSON with key "where" containing the WHERE clause (e.g., {"where": "PRODUCT_ID = 101"})
+)
+RETURNS VARIANT
+LANGUAGE JAVASCRIPT
+EXECUTE AS CALLER
+AS
+$$
+try {
+    // 1. Extract the WHERE clause.
+    var whereClause = (WHERE_JSON && WHERE_JSON.where) ? WHERE_JSON.where : null;
+    if (!whereClause) {
+        throw "WHERE clause is required for deletion.";
+    }
+    
+    // 2. Retrieve the rows to be deleted from the PRODUCT table.
+    var selectSQL = "SELECT * FROM EVERSHOP_COPY.PUBLIC.PRODUCT WHERE " + whereClause;
+    var stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    var result = stmtSelect.execute();
+    
+    var rowsToDelete = [];
+    while(result.next()){
+        var row = {};
+        var colCount = result.getColumnCount();
+        for(var i = 1; i <= colCount; i++){
+            var colName = result.getColumnName(i);
+            row[colName] = result.getColumnValue(i);
+        }
+        rowsToDelete.push(row);
+    }
+    
+    if (rowsToDelete.length === 0) {
+        throw "No product found for deletion.";
+    }
+    
+    // 3. Log an event in the EVENT table with the deleted rows data.
+    var eventDataStr = JSON.stringify(rowsToDelete);
+    // Escape any single quotes to safely inline in SQL.
+    eventDataStr = eventDataStr.replace(/'/g, "''");
+    
+    var eventSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
+                   "SELECT 'product_deleted', PARSE_JSON('" + eventDataStr + "')";
+    var stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
+    stmtEvent.execute();
+    
+    // 4. Delete the rows from the PRODUCT table.
+    var deleteSQL = "DELETE FROM EVERSHOP_COPY.PUBLIC.PRODUCT WHERE " + whereClause;
+    var stmtDelete = snowflake.createStatement({ sqlText: deleteSQL });
+    stmtDelete.execute();
+    
+    // 5. Return details of the deleted rows as a VARIANT (JSON array).
+    return JSON.parse(JSON.stringify(rowsToDelete));
+    
+} catch (err) {
+    // Optionally, rollback transaction on error.
+    try {
+         var rollbackStmt = snowflake.createStatement({ sqlText: "ROLLBACK" });
+         rollbackStmt.execute();
+    } catch(e) { }
+    return "Error: " + err;
+}
+$$;
+
+
+CALL EVERSHOP_COPY.PUBLIC.DELETE_PRODUCT_WITH_EVENT(
+    PARSE_JSON('{ "where": "PRODUCT_ID = 601" }')
+);
+
+
+
+
+
+
