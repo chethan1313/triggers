@@ -21,7 +21,7 @@ C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src
 45
 
 
-for inserting while creating customer 
+-----------------------------------------------------------for inserting while creating customer 
 
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.INSERT_CUSTOMER_WITH_EVENT(
     DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into CUSTOMER
@@ -110,7 +110,7 @@ CALL EVERSHOP_COPY.PUBLIC.INSERT_CUSTOMER_WITH_EVENT(
 );
 
 
-for inserting into event while updating the customer _________________________________________________________________________
+--------------------------------------------------------------for inserting into event while updating the customer
 
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_CUSTOMER_WITH_EVENT(
     DATA_JSON VARIANT,   -- JSON with key-value pairs for fields to update in CUSTOMER
@@ -198,7 +198,7 @@ CALL EVERSHOP_COPY.PUBLIC.UPDATE_CUSTOMER_WITH_EVENT(
 );
 
 
-for inserting while deleting the customer_______________________________________________________________________________________
+-------------------------------------------------------------------for inserting while deleting the customer
 
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.DELETE_CUSTOMER_AND_LOG_EVENT(
     WHERE_JSON VARIANT  -- JSON with key "where": complete WHERE clause for deletion, e.g. {"where": "CUSTOMER_ID = 5"}
