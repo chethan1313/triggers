@@ -3,6 +3,8 @@ FILENAME=C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\eve
 LINE=502-686
 
 
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\api\deleteAttributeGroup\deleteAttributeGroup.js
+43
 
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.DELETE_ATTRIBUTE_GROUP_AND_LOG(
     WHERE_JSON VARIANT  -- JSON object with a key "where" containing the deletion WHERE clause, e.g. {"where": "ATTRIBUTE_GROUP_ID = 5"}
@@ -62,6 +64,17 @@ CALL EVERSHOP_COPY.PUBLIC.DELETE_ATTRIBUTE_GROUP_AND_LOG(
 
 
 *************************************************************************************************************
+
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\components\admin\promotion\couponEdit\BuyXGetY.jsx
+146
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\api\unlinkVariant\unlinkVariants.js
+14
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.2.js
+20
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\product\updateProduct.js
+279
+311
+
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_PRODUCT_WITH_ATTRIBUTE_GROUP_CHECK(
     DATA_JSON VARIANT,   -- JSON with fields to update, e.g. {"GROUP_ID": 5}
     WHERE_JSON VARIANT   -- JSON with a key "where" containing the WHERE clause, e.g. {"where": "PRODUCT_ID = 101"}
@@ -168,6 +181,8 @@ CALL EVERSHOP_COPY.PUBLIC.UPDATE_PRODUCT_WITH_ATTRIBUTE_GROUP_CHECK(
 --CHANGES
 
 ****************************************************************************
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\attribute\updateProductAttribute.js
+134
 
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.DELETE_ATTRIBUTE_GROUP_LINK_CASCADE(
     WHERE_JSON VARIANT  -- JSON with key "where": e.g. { "where": "ATTRIBUTE_GROUP_LINK_ID = 1" }
@@ -267,6 +282,8 @@ CALL EVERSHOP_COPY.PUBLIC.DELETE_ATTRIBUTE_GROUP_LINK_CASCADE(
 
 
 *************************************************************************
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\attribute\updateProductAttribute.js
+80
     
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_ATTRIBUTE_OPTION_WITH_CASCADE(
     DATA_JSON VARIANT,   -- JSON with fields to update in ATTRIBUTE_OPTION (e.g. {"OPTION_TEXT": "New Option Text"})
@@ -354,6 +371,8 @@ CALL EVERSHOP_COPY.PUBLIC.UPDATE_ATTRIBUTE_OPTION_WITH_CASCADE(
 
 
 *******************************************************************************************
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\attribute\updateProductAttribute.js
+64
 
     CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.DELETE_ATTRIBUTE_OPTION_WITH_CASCADE(
     WHERE_JSON VARIANT  -- JSON with key "where", e.g. {"where": "ATTRIBUTE_OPTION_ID = 101"}
@@ -429,6 +448,14 @@ CALL EVERSHOP_COPY.PUBLIC.DELETE_ATTRIBUTE_OPTION_WITH_CASCADE(
 
 
 ***************************************************************************
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.4.js
+46
+81
+116
+151
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\product\createProduct.js
+164
+
 
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.INSERT_PRODUCT_AND_UPDATE_VARIANT_GROUP(
     DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into PRODUCT
@@ -519,6 +546,15 @@ CALL EVERSHOP_COPY.PUBLIC.INSERT_PRODUCT_AND_UPDATE_VARIANT_GROUP(
 
 
 *********************************************************************************************
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\components\admin\promotion\couponEdit\BuyXGetY.jsx
+146
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\api\unlinkVariant\unlinkVariants.js
+14
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\migration\Version-1.0.2.js
+20
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\product\updateProduct.js
+279
+311
 
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_PRODUCT_WITH_CASCADE(
     DATA_JSON VARIANT,   -- JSON with fields to update (e.g., {"GROUP_ID": 3, "STATUS": TRUE, ...})
@@ -623,6 +659,9 @@ Finally, the procedure returns the updated product row as a JSON (VARIANT).
 
     
 ************************************************************************************************
+
+C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\attribute\updateProductAttribute.js
+150
 
 CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_ATTRIBUTE_WITH_CASCADE(
     DATA_JSON VARIANT,   -- JSON with fields to update, e.g. {"TYPE": "text", "ATTRIBUTE_NAME": "Color"}
