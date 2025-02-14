@@ -18,7 +18,7 @@ EXECUTE AS CALLER
 AS
 $$
 try {
-    // --- 1. Build the INSERT statement dynamically ---
+    // --- 1. Build the INSERT statement dynamically using template literals ---
     var data = DATA_JSON;
     var columns = [];
     var values = [];
@@ -29,7 +29,7 @@ try {
         if (typeof val === 'string') {
             // Escape single quotes in string values.
             val = val.replace(/'/g, "''");
-            values.push("'" + val + "'");
+            values.push(`'${val}'`);
         } else if (typeof val === 'boolean') {
             values.push(val ? "TRUE" : "FALSE");
         } else if (val === null) {
@@ -39,26 +39,24 @@ try {
         }
     }
     
-    // Build the INSERT query (without a RETURNING clause).
-    var insertQuery = "INSERT INTO EVERSHOP_COPY.PUBLIC.PRODUCT_IMAGE (" 
-                      + columns.join(", ") 
-                      + ") VALUES (" 
-                      + values.join(", ") 
-                      + ")";
+    var insertQuery = `INSERT INTO EVERSHOP_COPY.PUBLIC.PRODUCT_IMAGE (${columns.join(", ")})
+                       VALUES (${values.join(", ")})`;
     
     var stmtInsert = snowflake.createStatement({ sqlText: insertQuery });
     stmtInsert.execute();
     
-    // --- 2. Retrieve the inserted row ---
-    // For retrieval, we assume the input JSON contains PRODUCT_IMAGE_PRODUCT_ID.
+    // --- 2. Retrieve the inserted row using OBJECT_CONSTRUCT_KEEP_NULL(*) ---
     if (!data.hasOwnProperty("PRODUCT_IMAGE_PRODUCT_ID")) {
         throw "Input JSON must include PRODUCT_IMAGE_PRODUCT_ID for retrieval.";
     }
     var prodId = data.PRODUCT_IMAGE_PRODUCT_ID;
-    // Retrieve the row with the highest PRODUCT_IMAGE_ID for this product.
-    var selectQuery = "SELECT * FROM EVERSHOP_COPY.PUBLIC.PRODUCT_IMAGE " +
-                      "WHERE PRODUCT_IMAGE_PRODUCT_ID = " + prodId +
-                      " ORDER BY PRODUCT_IMAGE_ID DESC LIMIT 1";
+    
+    var selectQuery = `SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data
+                       FROM EVERSHOP_COPY.PUBLIC.PRODUCT_IMAGE
+                       WHERE PRODUCT_IMAGE_PRODUCT_ID = ${prodId}
+                       ORDER BY PRODUCT_IMAGE_ID DESC
+                       LIMIT 1`;
+                       
     var stmtSelect = snowflake.createStatement({ sqlText: selectQuery });
     var resultSelect = stmtSelect.execute();
     
@@ -66,22 +64,15 @@ try {
         throw "No inserted row found.";
     }
     
-    var insertedRow = {};
-    var colCount = resultSelect.getColumnCount();
-    for (var i = 1; i <= colCount; i++) {
-        var colName = resultSelect.getColumnName(i);
-        insertedRow[colName] = resultSelect.getColumnValue(i);
-    }
+    var insertedRow = resultSelect.getColumnValue("ROW_DATA");
     
     // --- 3. Log the event in the EVENT table ---
-    // Use the inserted row as the event data.
     var eventDataStr = JSON.stringify(insertedRow);
-    // Escape any single quotes for safe SQL insertion.
     eventDataStr = eventDataStr.replace(/'/g, "''");
     
-    // Build the INSERT for EVENT using a SELECT clause with PARSE_JSON.
-    var eventInsertQuery = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
-                           "SELECT 'product_image_added', PARSE_JSON('" + eventDataStr + "')";
+    var eventInsertQuery = `INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA)
+                             SELECT 'product_image_added', PARSE_JSON('${eventDataStr}')`;
+                             
     var stmtEvent = snowflake.createStatement({ sqlText: eventInsertQuery });
     stmtEvent.execute();
     
