@@ -28,19 +28,16 @@ try {
         throw "WHERE clause is required for update.";
     }
     
-    // --- 1. Retrieve the OLD row ---
-    var selectOldQuery = "SELECT * FROM EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY WHERE " + whereClause;
+    // --- 1. Retrieve the OLD row using OBJECT_CONSTRUCT_KEEP_NULL(*) ---
+    var selectOldQuery = `SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data 
+                          FROM EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY 
+                          WHERE ${whereClause}`;
     var stmtOld = snowflake.createStatement({ sqlText: selectOldQuery });
     var resultOld = stmtOld.execute();
     if (!resultOld.next()) {
         throw "No matching row found for update.";
     }
-    var oldRow = {};
-    var colCount = resultOld.getColumnCount();
-    for (var i = 1; i <= colCount; i++) {
-        var colName = resultOld.getColumnName(i);
-        oldRow[colName] = resultOld.getColumnValue(i);
-    }
+    var oldRow = resultOld.getColumnValue("ROW_DATA");
     
     // --- 2. Perform the UPDATE ---
     var data = DATA_JSON;
@@ -49,34 +46,31 @@ try {
         var val = data[key];
         if (typeof val === 'string') {
             val = val.replace(/'/g, "''");
-            setClauses.push(key + " = '" + val + "'");
+            setClauses.push(`${key} = '${val}'`);
         } else if (typeof val === 'boolean') {
-            setClauses.push(key + " = " + (val ? 'TRUE' : 'FALSE'));
+            setClauses.push(`${key} = ${val ? 'TRUE' : 'FALSE'}`);
         } else if (val === null) {
-            setClauses.push(key + " = NULL");
+            setClauses.push(`${key} = NULL`);
         } else {
-            setClauses.push(key + " = " + val.toString());
+            setClauses.push(`${key} = ${val.toString()}`);
         }
     }
-    var updateQuery = "UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY SET " 
-                      + setClauses.join(", ") 
-                      + " WHERE " + whereClause;
+    var updateQuery = `UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY 
+                       SET ${setClauses.join(", ")} 
+                       WHERE ${whereClause}`;
     var stmtUpdate = snowflake.createStatement({ sqlText: updateQuery });
     stmtUpdate.execute();
     
-    // --- 3. Retrieve the NEW row ---
-    var selectNewQuery = "SELECT * FROM EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY WHERE " + whereClause;
+    // --- 3. Retrieve the NEW row using OBJECT_CONSTRUCT_KEEP_NULL(*) ---
+    var selectNewQuery = `SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data 
+                          FROM EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY 
+                          WHERE ${whereClause}`;
     var stmtNew = snowflake.createStatement({ sqlText: selectNewQuery });
     var resultNew = stmtNew.execute();
     if (!resultNew.next()) {
         throw "Unable to retrieve updated row.";
     }
-    var newRow = {};
-    var colCountNew = resultNew.getColumnCount();
-    for (var i = 1; i <= colCountNew; i++) {
-        var colNameNew = resultNew.getColumnName(i);
-        newRow[colNameNew] = resultNew.getColumnValue(i);
-    }
+    var newRow = resultNew.getColumnValue("ROW_DATA");
     
     // --- 4. Insert an event record into the EVENT table ---
     // Construct event data as a JavaScript object.
@@ -90,18 +84,18 @@ try {
     eventDataStr = eventDataStr.replace(/'/g, "''");
     
     // Construct the INSERT statement using a SELECT clause with PARSE_JSON.
-    var insertEventQuery = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
-                           "SELECT 'inventory_updated', PARSE_JSON('" + eventDataStr + "')";
+    var insertEventQuery = `INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA)
+                            SELECT 'inventory_updated', PARSE_JSON('${eventDataStr}')`;
     var stmtEvent = snowflake.createStatement({ sqlText: insertEventQuery });
     stmtEvent.execute();
     
     // --- 5. Return the updated (NEW) row as a VARIANT ---
-    // Use JavaScript's JSON.parse to convert the stringified newRow into an object.
     return JSON.parse(JSON.stringify(newRow));
 } catch(err) {
     return "Error: " + err;
 }
 $$;
+
 
 
 INSERT INTO EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY (
