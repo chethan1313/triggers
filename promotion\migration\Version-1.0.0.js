@@ -15,18 +15,18 @@ EXECUTE AS CALLER
 AS
 $$
 try {
-    // --- 1. Build the dynamic INSERT statement for SALES_ORDER ---
-    var data = DATA_JSON;
-    var columns = [];
-    var values = [];
+    // --- 1. Build the dynamic INSERT statement for SALES_ORDER using template literals ---
+    let data = DATA_JSON;
+    let columns = [];
+    let values = [];
     
-    for (var key in data) {
+    for (let key in data) {
         columns.push(key);
-        var val = data[key];
+        let val = data[key];
         if (typeof val === 'string') {
             // Escape single quotes.
             val = val.replace(/'/g, "''");
-            values.push("'" + val + "'");
+            values.push(`'${val}'`);
         } else if (typeof val === 'boolean') {
             values.push(val ? "TRUE" : "FALSE");
         } else if (val === null) {
@@ -36,42 +36,37 @@ try {
         }
     }
     
-    var insertSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.SALES_ORDER (" 
-                    + columns.join(", ") 
-                    + ") VALUES (" 
-                    + values.join(", ") 
-                    + ")";
-                    
-    var stmtInsert = snowflake.createStatement({ sqlText: insertSQL });
+    const insertSQL = `INSERT INTO EVERSHOP_COPY.PUBLIC.SALES_ORDER (${columns.join(", ")})
+                       VALUES (${values.join(", ")})`;
+                       
+    const stmtInsert = snowflake.createStatement({ sqlText: insertSQL });
     stmtInsert.execute();
     
-    // --- 2. Retrieve the newly inserted order row ---
+    // --- 2. Retrieve the newly inserted order row using OBJECT_CONSTRUCT_KEEP_NULL(*) ---
     // (Assuming no concurrent inserts; select the row with the highest ORDER_ID)
-    var selectSQL = "SELECT * FROM EVERSHOP_COPY.PUBLIC.SALES_ORDER ORDER BY ORDER_ID DESC LIMIT 1";
-    var stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
-    var result = stmtSelect.execute();
+    const selectSQL = `SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data
+                       FROM EVERSHOP_COPY.PUBLIC.SALES_ORDER
+                       ORDER BY ORDER_ID DESC
+                       LIMIT 1`;
+    const stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    const result = stmtSelect.execute();
     if (!result.next()) {
         throw "No inserted order found.";
     }
-    var insertedRow = {};
-    var colCount = result.getColumnCount();
-    for (var i = 1; i <= colCount; i++) {
-        var colName = result.getColumnName(i);
-        insertedRow[colName] = result.getColumnValue(i);
-    }
+    const insertedRow = result.getColumnValue("ROW_DATA");
     
     // --- 3. Update the coupon's USED_TIME if a coupon is provided ---
     if (insertedRow["COUPON"] != null && insertedRow["COUPON"].toString().trim() !== "") {
-        var couponCode = insertedRow["COUPON"].toString().trim();
-        var updateCouponSQL = "UPDATE EVERSHOP_COPY.PUBLIC.COUPON SET USED_TIME = USED_TIME + 1 WHERE COUPON = '" 
-                              + couponCode.replace(/'/g, "''") + "'";
-        var stmtCoupon = snowflake.createStatement({ sqlText: updateCouponSQL });
+        const couponCode = insertedRow["COUPON"].toString().trim();
+        const updateCouponSQL = `UPDATE EVERSHOP_COPY.PUBLIC.COUPON 
+                                 SET USED_TIME = USED_TIME + 1 
+                                 WHERE COUPON = '${couponCode.replace(/'/g, "''")}'`;
+        const stmtCoupon = snowflake.createStatement({ sqlText: updateCouponSQL });
         stmtCoupon.execute();
-        var affectedRows = stmtCoupon.getRowCount();
-        // Optional: if no coupon row was updated, you might want to log a warning.
+        const affectedRows = stmtCoupon.getRowCount();
+        // If no coupon row was updated, add a message to the insertedRow object.
         if (affectedRows === 0) {
-            // For now, we'll add a message to the returned object.
-            insertedRow["coupon_update_message"] = "No coupon row updated. Check coupon code: " + couponCode;
+            insertedRow["coupon_update_message"] = `No coupon row updated. Check coupon code: ${couponCode}`;
         }
     }
     
@@ -79,9 +74,10 @@ try {
     return JSON.parse(JSON.stringify(insertedRow));
     
 } catch (err) {
-    return "Error: " + err;
+    throw new Error(`Procedure product_update failed: ${err.message || err}`);
 }
 $$;
+
 
 
 INSERT INTO EVERSHOP_COPY.PUBLIC.COUPON (
