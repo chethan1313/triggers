@@ -2,7 +2,7 @@ file name=C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\ev
 
 line=6-31
 
-CREATE OR REPLACE PROCEDURE INSERT_ORDER_ITEM_AND_UPDATE_PRODUCT_INVENTORY(
+CREATE OR REPLACE PROCEDURE reduce_product_stock_when_order_placed(
     DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into ORDER_ITEM
 )
 RETURNS VARIANT
@@ -103,7 +103,7 @@ try {
 $$;
 
 
-CALL INSERT_ORDER_ITEM_AND_UPDATE_PRODUCT_INVENTORY(
+CALL reduce_product_stock_when_order_placed(
     PARSE_JSON('{
         "ORDER_ITEM_ORDER_ID": 500,
         "PRODUCT_ID": 101,
