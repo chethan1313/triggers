@@ -23,7 +23,7 @@ C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src
 
 -----------------------------------------------------------for inserting while creating customer 
 
-CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.INSERT_CUSTOMER_WITH_EVENT(
+CREATE OR REPLACE PROCEDURE add_customer_created_event(
     DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into CUSTOMER
 )
 RETURNS VARIANT
@@ -32,19 +32,21 @@ EXECUTE AS CALLER
 AS
 $$
 try {
-    // --- 1. Build the INSERT statement dynamically for CUSTOMER ---
-    var data = DATA_JSON;
-    var columns = [];
-    var values = [];
+    // Begin transaction.
+    snowflake.execute({ sqlText: `BEGIN TRANSACTION` });
     
-    // Loop through the keys in the JSON object to build column names and values.
-    for (var key in data) {
+    const data = DATA_JSON;
+    let columns = [];
+    let values = [];
+    
+    // Build the dynamic INSERT statement for CUSTOMER.
+    for (const key in data) {
         columns.push(key);
-        var val = data[key];
+        let val = data[key];
         if (typeof val === 'string') {
-            // Escape any single quotes in string values.
+            // Escape single quotes.
             val = val.replace(/'/g, "''");
-            values.push("'" + val + "'");
+            values.push(`'${val}'`);
         } else if (typeof val === 'boolean') {
             values.push(val ? "TRUE" : "FALSE");
         } else if (val === null) {
@@ -54,54 +56,50 @@ try {
         }
     }
     
-    var insertSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.CUSTOMER (" 
-                  + columns.join(", ") 
-                  + ") VALUES (" 
-                  + values.join(", ") 
-                  + ")";
-    
-    var stmtInsert = snowflake.createStatement({ sqlText: insertSQL });
+    const insertSQL = `
+        INSERT INTO CUSTOMER (${columns.join(", ")})
+        VALUES (${values.join(", ")})
+    `;
+    const stmtInsert = snowflake.createStatement({ sqlText: insertSQL });
     stmtInsert.execute();
     
-    // --- 2. Retrieve the newly inserted CUSTOMER row ---
-    // (Assumes no concurrent inserts; select the row with the highest CUSTOMER_ID)
-    var selectSQL = "SELECT * FROM EVERSHOP_COPY.PUBLIC.CUSTOMER ORDER BY CUSTOMER_ID DESC LIMIT 1";
-    var stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
-    var result = stmtSelect.execute();
-    
+    // Retrieve the newly inserted CUSTOMER row.
+    // (Assumes no concurrent inserts; selects the row with the highest CUSTOMER_ID)
+    const selectSQL = `
+        SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data
+        FROM CUSTOMER
+        ORDER BY CUSTOMER_ID DESC
+        LIMIT 1
+    `;
+    const stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    const result = stmtSelect.execute();
     if (!result.next()) {
-        throw "No inserted customer found.";
+        throw new Error("No inserted customer found.");
     }
+    const insertedRow = result.getColumnValue("row_data");
     
-    var insertedRow = {};
-    var colCount = result.getColumnCount();
-    for (var i = 1; i <= colCount; i++) {
-        var colName = result.getColumnName(i);
-        insertedRow[colName] = result.getColumnValue(i);
-    }
-    
-    // --- 3. Log an event in the EVENT table ---
-    // Convert the inserted row to a JSON string.
-    var eventDataStr = JSON.stringify(insertedRow);
-    // Escape single quotes in the JSON string for safe inlining.
-    eventDataStr = eventDataStr.replace(/'/g, "''");
-    
-    // Build the INSERT statement for the EVENT table using a SELECT clause.
-    var eventSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
-                   "SELECT 'customer_created', PARSE_JSON('" + eventDataStr + "')";
-    
-    var stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
+    // Log an event in the EVENT table.
+    let eventDataStr = JSON.stringify(insertedRow).replace(/'/g, "''");
+    const eventSQL = `
+        INSERT INTO EVENT (NAME, DATA)
+        SELECT 'customer_created', PARSE_JSON('${eventDataStr}')
+    `;
+    const stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
     stmtEvent.execute();
     
-    // --- 4. Return the inserted customer row as a VARIANT (mimicking RETURN NEW) ---
-    return JSON.parse(JSON.stringify(insertedRow));
+    // Commit the transaction.
+    snowflake.execute({ sqlText: `COMMIT` });
     
+    // Return the inserted row as a VARIANT.
+    return insertedRow;
 } catch (err) {
-    return "Error: " + err;
+    // Rollback if any error occurs.
+    snowflake.execute({ sqlText: `ROLLBACK` });
+    throw new Error("Error: " + err);
 }
 $$;
 
-CALL EVERSHOP_COPY.PUBLIC.INSERT_CUSTOMER_WITH_EVENT(
+CALL add_customer_created_event(
     PARSE_JSON('{
         "EMAIL": "john.doe@example.com",
         "PASSWORD": "secretPassword",
@@ -110,11 +108,12 @@ CALL EVERSHOP_COPY.PUBLIC.INSERT_CUSTOMER_WITH_EVENT(
 );
 
 
+
 --------------------------------------------------------------for inserting into event while updating the customer
 
-CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_CUSTOMER_WITH_EVENT(
+CREATE OR REPLACE PROCEDURE add_customer_updated_event(
     DATA_JSON VARIANT,   -- JSON with key-value pairs for fields to update in CUSTOMER
-    WHERE_JSON VARIANT   -- JSON with a key "where" containing the WHERE clause (e.g., {"where": "CUSTOMER_ID = 101"})
+    whereClause STRING   -- WHERE clause (e.g., "CUSTOMER_ID = 301")
 )
 RETURNS VARIANT
 LANGUAGE JAVASCRIPT
@@ -122,86 +121,84 @@ EXECUTE AS CALLER
 AS
 $$
 try {
-    // 1. Extract and validate the WHERE clause.
-    var whereClause = (WHERE_JSON && WHERE_JSON.where) ? WHERE_JSON.where : null;
-    if (!whereClause) {
-        throw "WHERE clause is required for update.";
+    // Begin transaction.
+    snowflake.execute({ sqlText: `BEGIN TRANSACTION` });
+    
+    // Validate the WHERE clause.
+    if (!whereClause || whereClause.trim() === "") {
+        throw new Error("WHERE clause is required for update.");
     }
     
-    // 2. Build the UPDATE statement dynamically.
-    var data = DATA_JSON;
-    var setClauses = [];
-    for (var key in data) {
-        var val = data[key];
-        if (typeof val === 'string') {
-            // Escape single quotes.
+    // Build the dynamic UPDATE statement for the CUSTOMER table.
+    const data = DATA_JSON;
+    let setClauses = [];
+    for (const key in data) {
+        let val = data[key];
+        if (typeof val === "string") {
             val = val.replace(/'/g, "''");
-            setClauses.push(key + " = '" + val + "'");
-        } else if (typeof val === 'boolean') {
-            setClauses.push(key + " = " + (val ? "TRUE" : "FALSE"));
+            setClauses.push(`${key} = '${val}'`);
+        } else if (typeof val === "boolean") {
+            setClauses.push(`${key} = ${val ? "TRUE" : "FALSE"}`);
         } else if (val === null) {
-            setClauses.push(key + " = NULL");
+            setClauses.push(`${key} = NULL`);
         } else {
-            setClauses.push(key + " = " + val.toString());
+            setClauses.push(`${key} = ${val}`);
         }
     }
     
-    var updateSQL = "UPDATE EVERSHOP_COPY.PUBLIC.CUSTOMER SET " 
-                    + setClauses.join(", ") 
-                    + " WHERE " + whereClause;
-                    
-    var stmtUpdate = snowflake.createStatement({ sqlText: updateSQL });
+    const updateSQL = `
+        UPDATE CUSTOMER
+        SET ${setClauses.join(", ")}
+        WHERE ${whereClause}
+    `;
+    const stmtUpdate = snowflake.createStatement({ sqlText: updateSQL });
     stmtUpdate.execute();
     
-    // 3. Retrieve the updated customer row.
-    var selectSQL = "SELECT * FROM EVERSHOP_COPY.PUBLIC.CUSTOMER WHERE " + whereClause;
-    var stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
-    var resultSelect = stmtSelect.execute();
-    
+    // Retrieve the updated CUSTOMER row using OBJECT_CONSTRUCT_KEEP_NULL(*)
+    const selectSQL = `
+        SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data
+        FROM CUSTOMER
+        WHERE ${whereClause}
+        LIMIT 1
+    `;
+    const stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    const resultSelect = stmtSelect.execute();
     if (!resultSelect.next()) {
-        throw "No customer found for the given WHERE clause.";
+        throw new Error("No customer found for the given WHERE clause.");
     }
+    const updatedRow = resultSelect.getColumnValue("row_data");
     
-    var updatedRow = {};
-    var colCount = resultSelect.getColumnCount();
-    for (var i = 1; i <= colCount; i++) {
-        var colName = resultSelect.getColumnName(i);
-        updatedRow[colName] = resultSelect.getColumnValue(i);
-    }
-    
-    // 4. Log the customer_updated event.
-    // Convert the updated row to a JSON string.
-    var eventDataStr = JSON.stringify(updatedRow);
-    // Escape any single quotes for safe inlining.
-    eventDataStr = eventDataStr.replace(/'/g, "''");
-    
-    var eventSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
-                   "SELECT 'customer_updated', PARSE_JSON('" + eventDataStr + "')";
-                   
-    var stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
+    // Log the customer_updated event.
+    let eventDataStr = JSON.stringify(updatedRow).replace(/'/g, "''");
+    const eventSQL = `
+        INSERT INTO EVENT (NAME, DATA)
+        SELECT 'customer_updated', PARSE_JSON('${eventDataStr}')
+    `;
+    const stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
     stmtEvent.execute();
     
-    // 5. Return the updated customer row as a VARIANT.
-    return JSON.parse(JSON.stringify(updatedRow));
+    // Commit the transaction.
+    snowflake.execute({ sqlText: `COMMIT` });
+    
+    // Return the updated customer row as a VARIANT.
+    return updatedRow;
+    
 } catch (err) {
-    return "Error: " + err;
+    // Rollback if any error occurs.
+    snowflake.execute({ sqlText: `ROLLBACK` });
+    throw new Error("Error: " + err);
 }
 $$;
 
-
-CALL EVERSHOP_COPY.PUBLIC.UPDATE_CUSTOMER_WITH_EVENT(
-    PARSE_JSON('{
-        "EMAIL": "new.email@example.com",
-        "FULL_NAME": "New Customer Name"
-    }'),
-    PARSE_JSON('{ "where": "CUSTOMER_ID = 301" }')
+CALL add_customer_updated_event(
+    PARSE_JSON('{"EMAIL": "new.email@example.com", "FULL_NAME": "New Customer Name"}'),
+    'CUSTOMER_ID = 301'
 );
-
 
 -------------------------------------------------------------------for inserting while deleting the customer
 
-CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.DELETE_CUSTOMER_AND_LOG_EVENT(
-    WHERE_JSON VARIANT  -- JSON with key "where": complete WHERE clause for deletion, e.g. {"where": "CUSTOMER_ID = 5"}
+CREATE OR REPLACE PROCEDURE add_customer_deleted_event(
+    whereClause STRING  -- WHERE clause, e.g. "CUSTOMER_ID = 401"
 )
 RETURNS VARIANT
 LANGUAGE JAVASCRIPT
@@ -209,57 +206,65 @@ EXECUTE AS CALLER
 AS
 $$
 try {
-    // 1. Extract the WHERE clause from the input JSON.
-    var whereClause = (WHERE_JSON && WHERE_JSON.where) ? WHERE_JSON.where : null;
-    if (!whereClause) {
-        throw "WHERE clause is required for deletion.";
+    // Begin transaction.
+    snowflake.execute({ sqlText: `BEGIN TRANSACTION` });
+    
+    // Validate the WHERE clause.
+    if (!whereClause || whereClause.trim() === "") {
+        throw new Error("WHERE clause is required for deletion.");
     }
     
-    // 2. Retrieve rows to be deleted.
-    var selectSQL = "SELECT * FROM EVERSHOP_COPY.PUBLIC.CUSTOMER WHERE " + whereClause;
-    var stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
-    var result = stmtSelect.execute();
+    // --- 1. Retrieve rows to be deleted using OBJECT_CONSTRUCT_KEEP_NULL(*) ---
+    const selectSQL = `
+        SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data
+        FROM CUSTOMER
+        WHERE ${whereClause}
+    `;
+    const stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    const result = stmtSelect.execute();
     
-    var rowsToDelete = [];
-    while(result.next()){
-        var row = {};
-        var colCount = result.getColumnCount();
-        for(var i = 1; i <= colCount; i++){
-            var colName = result.getColumnName(i);
-            row[colName] = result.getColumnValue(i);
-        }
+    let rowsToDelete = [];
+    if (!result.next()) {
+        throw new Error("No customer found for the given WHERE clause.");
+    }
+    do {
+        const row = result.getColumnValue("row_data");
         rowsToDelete.push(row);
-    }
+    } while (result.next());
     
-    if (rowsToDelete.length === 0) {
-        throw "No customer found for the given WHERE clause.";
-    }
-    
-    // 3. For each row, log an event in the EVENT table.
-    for (var j = 0; j < rowsToDelete.length; j++) {
-        var rowDataStr = JSON.stringify(rowsToDelete[j]);
-        // Escape any single quotes for safe inlining.
-        rowDataStr = rowDataStr.replace(/'/g, "''");
-        var eventSQL = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
-                       "SELECT 'customer_deleted', PARSE_JSON('" + rowDataStr + "')";
-        var stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
+    // --- 2. For each row, log an event in the EVENT table ---
+    for (let j = 0; j < rowsToDelete.length; j++) {
+        let rowDataStr = JSON.stringify(rowsToDelete[j]).replace(/'/g, "''");
+        const eventSQL = `
+            INSERT INTO EVENT (NAME, DATA)
+            SELECT 'customer_deleted', PARSE_JSON('${rowDataStr}')
+        `;
+        const stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
         stmtEvent.execute();
     }
     
-    // 4. Delete the rows from the CUSTOMER table.
-    var deleteSQL = "DELETE FROM EVERSHOP_COPY.PUBLIC.CUSTOMER WHERE " + whereClause;
-    var stmtDelete = snowflake.createStatement({ sqlText: deleteSQL });
+    // --- 3. Delete the rows from the CUSTOMER table ---
+    const deleteSQL = `
+        DELETE FROM CUSTOMER
+        WHERE ${whereClause}
+    `;
+    const stmtDelete = snowflake.createStatement({ sqlText: deleteSQL });
     stmtDelete.execute();
     
-    // 5. Return the deleted rows as a VARIANT (JSON array).
-    return PARSE_JSON(JSON.stringify(rowsToDelete));
+    // Commit the transaction.
+    snowflake.execute({ sqlText: `COMMIT` });
+    
+    // --- 4. Return the deleted rows as a VARIANT (JSON array) ---
+    return rowsToDelete;
     
 } catch (err) {
-    return "Error: " + err;
+    // Rollback if any error occurs.
+    try {
+        snowflake.execute({ sqlText: `ROLLBACK` });
+    } catch(e) { }
+    throw new Error("Error: " + err);
 }
 $$;
 
-CALL EVERSHOP_COPY.PUBLIC.DELETE_CUSTOMER_AND_LOG_EVENT(
-    PARSE_JSON('{ "where": "CUSTOMER_ID = 401" }')
-);
 
+CALL add_customer_deleted_event('CUSTOMER_ID = 401');
