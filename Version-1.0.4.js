@@ -12,9 +12,9 @@ C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src
 
 
 
-CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.UPDATE_PRODUCT_INVENTORY_WITH_EVENT(
+CREATE OR REPLACE PROCEDURE UPDATE_PRODUCT_INVENTORY_WITH_EVENT(
     DATA_JSON VARIANT,   -- JSON with update field-value pairs
-    WHERE_JSON VARIANT   -- JSON with a key "where" containing the WHERE clause (e.g., {"where": "PRODUCT_INVENTORY_ID = 101"})
+    whereClause STRING   -- WHERE clause (e.g., "PRODUCT_INVENTORY_ID = 101")
 )
 RETURNS VARIANT
 LANGUAGE JAVASCRIPT
@@ -22,28 +22,32 @@ EXECUTE AS CALLER
 AS
 $$
 try {
-    // Validate and extract the WHERE clause.
-    var whereClause = (WHERE_JSON && WHERE_JSON.where) ? WHERE_JSON.where : null;
-    if (!whereClause) {
-        throw "WHERE clause is required for update.";
+    // Begin transaction.
+    snowflake.execute({ sqlText: `BEGIN TRANSACTION` });
+    
+    // Validate the WHERE clause.
+    if (!whereClause || whereClause.trim() === "") {
+        throw new Error("WHERE clause is required for update.");
     }
     
     // --- 1. Retrieve the OLD row using OBJECT_CONSTRUCT_KEEP_NULL(*) ---
-    var selectOldQuery = `SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data 
-                          FROM EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY 
-                          WHERE ${whereClause}`;
-    var stmtOld = snowflake.createStatement({ sqlText: selectOldQuery });
-    var resultOld = stmtOld.execute();
+    const selectOldQuery = `
+        SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data
+        FROM PRODUCT_INVENTORY
+        WHERE ${whereClause}
+    `;
+    const stmtOld = snowflake.createStatement({ sqlText: selectOldQuery });
+    const resultOld = stmtOld.execute();
     if (!resultOld.next()) {
-        throw "No matching row found for update.";
+        throw new Error("No matching row found for update.");
     }
-    var oldRow = resultOld.getColumnValue("ROW_DATA");
+    const oldRow = resultOld.getColumnValue("row_data");
     
     // --- 2. Perform the UPDATE ---
-    var data = DATA_JSON;
-    var setClauses = [];
-    for (var key in data) {
-        var val = data[key];
+    const data = DATA_JSON;
+    let setClauses = [];
+    for (const key in data) {
+        let val = data[key];
         if (typeof val === 'string') {
             val = val.replace(/'/g, "''");
             setClauses.push(`${key} = '${val}'`);
@@ -55,59 +59,53 @@ try {
             setClauses.push(`${key} = ${val.toString()}`);
         }
     }
-    var updateQuery = `UPDATE EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY 
-                       SET ${setClauses.join(", ")} 
-                       WHERE ${whereClause}`;
-    var stmtUpdate = snowflake.createStatement({ sqlText: updateQuery });
+    const updateQuery = `
+        UPDATE PRODUCT_INVENTORY
+        SET ${setClauses.join(", ")}
+        WHERE ${whereClause}
+    `;
+    const stmtUpdate = snowflake.createStatement({ sqlText: updateQuery });
     stmtUpdate.execute();
     
     // --- 3. Retrieve the NEW row using OBJECT_CONSTRUCT_KEEP_NULL(*) ---
-    var selectNewQuery = `SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data 
-                          FROM EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY 
-                          WHERE ${whereClause}`;
-    var stmtNew = snowflake.createStatement({ sqlText: selectNewQuery });
-    var resultNew = stmtNew.execute();
+    const selectNewQuery = `
+        SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data
+        FROM PRODUCT_INVENTORY
+        WHERE ${whereClause}
+    `;
+    const stmtNew = snowflake.createStatement({ sqlText: selectNewQuery });
+    const resultNew = stmtNew.execute();
     if (!resultNew.next()) {
-        throw "Unable to retrieve updated row.";
+        throw new Error("Unable to retrieve updated row.");
     }
-    var newRow = resultNew.getColumnValue("ROW_DATA");
+    const newRow = resultNew.getColumnValue("row_data");
     
     // --- 4. Insert an event record into the EVENT table ---
-    // Construct event data as a JavaScript object.
-    var eventData = {
-        old: oldRow,
-        new: newRow
-    };
-    // Convert the event data object to a JSON string.
-    var eventDataStr = JSON.stringify(eventData);
-    // Escape any single quotes in the JSON string.
-    eventDataStr = eventDataStr.replace(/'/g, "''");
-    
-    // Construct the INSERT statement using a SELECT clause with PARSE_JSON.
-    var insertEventQuery = `INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA)
-                            SELECT 'inventory_updated', PARSE_JSON('${eventDataStr}')`;
-    var stmtEvent = snowflake.createStatement({ sqlText: insertEventQuery });
+    const eventData = { old: oldRow, new: newRow };
+    let eventDataStr = JSON.stringify(eventData).replace(/'/g, "''");
+    const insertEventQuery = `
+        INSERT INTO EVENT (NAME, DATA)
+        SELECT 'inventory_updated', PARSE_JSON('${eventDataStr}')
+    `;
+    const stmtEvent = snowflake.createStatement({ sqlText: insertEventQuery });
     stmtEvent.execute();
     
+    // Commit the transaction.
+    snowflake.execute({ sqlText: `COMMIT` });
+    
     // --- 5. Return the updated (NEW) row as a VARIANT ---
-    return JSON.parse(JSON.stringify(newRow));
-} catch(err) {
-    return "Error: " + err;
+    return newRow;
+    
+} catch (err) {
+    // Rollback if any error occurs.
+    snowflake.execute({ sqlText: `ROLLBACK` });
+    throw new Error("Error: " + err);
 }
 $$;
 
 
-
-INSERT INTO EVERSHOP_COPY.PUBLIC.PRODUCT_INVENTORY (
-    PRODUCT_INVENTORY_PRODUCT_ID, QTY, MANAGE_STOCK, STOCK_AVAILABILITY
-)
-VALUES (101, 50, TRUE, FALSE);
-
-
-CALL EVERSHOP_COPY.PUBLIC.UPDATE_PRODUCT_INVENTORY_WITH_EVENT(
-    PARSE_JSON('{
-        "QTY": 45,
-        "STOCK_AVAILABILITY": true
-    }'),
-    PARSE_JSON('{ "where": "PRODUCT_INVENTORY_ID = 203" }')
+CALL UPDATE_PRODUCT_INVENTORY_WITH_EVENT(
+    PARSE_JSON('{"QTY": 45, "STOCK_AVAILABILITY": true}'),
+    'PRODUCT_INVENTORY_ID = 101'
 );
+
