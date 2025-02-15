@@ -7,7 +7,7 @@ C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src
 
 
 
-CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.INSERT_SALES_ORDER_WITH_EVENT(
+CREATE OR REPLACE PROCEDURE add_order_created_event(
     DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into SALES_ORDER
 )
 RETURNS VARIANT
@@ -16,18 +16,21 @@ EXECUTE AS CALLER
 AS
 $$
 try {
-    // --- 1. Build the INSERT statement dynamically for SALES_ORDER ---
-    var data = DATA_JSON;
-    var columns = [];
-    var values = [];
+    // Begin transaction.
+    snowflake.execute({ sqlText: `BEGIN TRANSACTION` });
     
-    for (var key in data) {
+    const data = DATA_JSON;
+    let columns = [];
+    let values = [];
+    
+    // --- 1. Build the dynamic INSERT statement for SALES_ORDER ---
+    for (const key in data) {
         columns.push(key);
-        var val = data[key];
+        let val = data[key];
         if (typeof val === 'string') {
             // Escape single quotes.
             val = val.replace(/'/g, "''");
-            values.push("'" + val + "'");
+            values.push(`'${val}'`);
         } else if (typeof val === 'boolean') {
             values.push(val ? "TRUE" : "FALSE");
         } else if (val === null) {
@@ -37,52 +40,52 @@ try {
         }
     }
     
-    var insertQuery = "INSERT INTO EVERSHOP_COPY.PUBLIC.SALES_ORDER (" 
-                      + columns.join(", ") 
-                      + ") VALUES (" 
-                      + values.join(", ") 
-                      + ")";
-    
-    var stmtInsert = snowflake.createStatement({ sqlText: insertQuery });
+    const insertSQL = `
+        INSERT INTO SALES_ORDER (${columns.join(", ")})
+        VALUES (${values.join(", ")})
+    `;
+    const stmtInsert = snowflake.createStatement({ sqlText: insertSQL });
     stmtInsert.execute();
     
-    // --- 2. Retrieve the newly inserted order ---
-    // (Assuming no concurrent inserts, we select the row with the highest ORDER_ID)
-    var selectQuery = "SELECT * FROM EVERSHOP_COPY.PUBLIC.SALES_ORDER ORDER BY ORDER_ID DESC LIMIT 1";
-    var stmtSelect = snowflake.createStatement({ sqlText: selectQuery });
-    var resultSelect = stmtSelect.execute();
-    
+    // --- 2. Retrieve the newly inserted SALES_ORDER row ---
+    // (Assumes no concurrent inserts; selects the row with the highest ORDER_ID)
+    const selectSQL = `
+        SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data
+        FROM SALES_ORDER
+        ORDER BY ORDER_ID DESC
+        LIMIT 1
+    `;
+    const stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    const resultSelect = stmtSelect.execute();
     if (!resultSelect.next()) {
-        throw "No inserted order found.";
+        throw new Error("No inserted order found.");
     }
+    const insertedRow = resultSelect.getColumnValue("row_data");
     
-    var insertedRow = {};
-    var colCount = resultSelect.getColumnCount();
-    for (var i = 1; i <= colCount; i++) {
-        var colName = resultSelect.getColumnName(i);
-        insertedRow[colName] = resultSelect.getColumnValue(i);
-    }
-    
-    // --- 3. Log the event into the EVENT table ---
-    // Convert the inserted row into a JSON string.
-    var eventDataStr = JSON.stringify(insertedRow);
-    // Escape any single quotes so that it can be safely inlined.
-    eventDataStr = eventDataStr.replace(/'/g, "''");
-    
-    var eventInsertQuery = "INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA) " +
-                           "SELECT 'order_created', PARSE_JSON('" + eventDataStr + "')";
-    
-    var stmtEvent = snowflake.createStatement({ sqlText: eventInsertQuery });
+    // --- 3. Log the event in the EVENT table ---
+    let eventDataStr = JSON.stringify(insertedRow).replace(/'/g, "''");
+    const eventSQL = `
+        INSERT INTO EVENT (NAME, DATA)
+        SELECT 'order_created', PARSE_JSON('${eventDataStr}')
+    `;
+    const stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
     stmtEvent.execute();
     
+    // Commit the transaction.
+    snowflake.execute({ sqlText: `COMMIT` });
+    
     // --- 4. Return the inserted order as a VARIANT ---
-    return JSON.parse(JSON.stringify(insertedRow));
+    return insertedRow;
+    
 } catch (err) {
-    return "Error: " + err;
+    // Rollback if any error occurs.
+    snowflake.execute({ sqlText: `ROLLBACK` });
+    throw new Error("Error: " + err);
 }
 $$;
 
-CALL EVERSHOP_COPY.PUBLIC.INSERT_SALES_ORDER_WITH_EVENT(
+
+CALL add_order_created_event(
     PARSE_JSON('{
         "ORDER_NUMBER": "SO-1001",
         "STATUS": "pending",
@@ -99,4 +102,3 @@ CALL EVERSHOP_COPY.PUBLIC.INSERT_SALES_ORDER_WITH_EVENT(
         "GRAND_TOTAL": 280.00
     }')
 );
-
