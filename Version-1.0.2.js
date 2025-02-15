@@ -368,7 +368,7 @@ C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src
 11
 14
 
-CREATE OR REPLACE PROCEDURE DELETE_CATEGORY_AND_SUBCATEGORIES(
+CREATE OR REPLACE PROCEDURE delete_sub_categories(
     whereClause STRING  -- WHERE clause, e.g. "CATEGORY_ID = 6"
 )
 RETURNS STRING
@@ -446,5 +446,5 @@ $$;
 
 
 
-CALL DELETE_CATEGORY_AND_SUBCATEGORIES('CATEGORY_ID = 6');
+CALL delete_sub_categories('CATEGORY_ID = 6');
 
