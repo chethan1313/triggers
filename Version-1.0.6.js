@@ -9,7 +9,7 @@ C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src
 C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\catalog\services\product\updateProduct.js
 239
 
-CREATE OR REPLACE PROCEDURE EVERSHOP_COPY.PUBLIC.INSERT_PRODUCT_IMAGE_WITH_EVENT(
+CREATE OR REPLACE PROCEDURE INSERT_PRODUCT_IMAGE_WITH_EVENT(
     DATA_JSON VARIANT  -- JSON with key-value pairs for fields to insert into PRODUCT_IMAGE
 )
 RETURNS VARIANT
@@ -18,16 +18,19 @@ EXECUTE AS CALLER
 AS
 $$
 try {
-    // --- 1. Build the INSERT statement dynamically using template literals ---
-    var data = DATA_JSON;
-    var columns = [];
-    var values = [];
+    // Begin transaction.
+    snowflake.execute({ sqlText: `BEGIN TRANSACTION` });
     
-    for (var key in data) {
+    const data = DATA_JSON;
+    let columns = [];
+    let values = [];
+    
+    // --- 1. Build the dynamic INSERT statement for PRODUCT_IMAGE ---
+    for (const key in data) {
         columns.push(key);
-        var val = data[key];
+        let val = data[key];
         if (typeof val === 'string') {
-            // Escape single quotes in string values.
+            // Escape any single quotes in string values.
             val = val.replace(/'/g, "''");
             values.push(`'${val}'`);
         } else if (typeof val === 'boolean') {
@@ -39,52 +42,57 @@ try {
         }
     }
     
-    var insertQuery = `INSERT INTO EVERSHOP_COPY.PUBLIC.PRODUCT_IMAGE (${columns.join(", ")})
-                       VALUES (${values.join(", ")})`;
-    
-    var stmtInsert = snowflake.createStatement({ sqlText: insertQuery });
+    const insertSQL = `
+        INSERT INTO PRODUCT_IMAGE (${columns.join(", ")})
+        VALUES (${values.join(", ")})
+    `;
+    const stmtInsert = snowflake.createStatement({ sqlText: insertSQL });
     stmtInsert.execute();
     
-    // --- 2. Retrieve the inserted row using OBJECT_CONSTRUCT_KEEP_NULL(*) ---
+    // --- 2. Retrieve the newly inserted PRODUCT_IMAGE row using OBJECT_CONSTRUCT_KEEP_NULL(*) ---
+    // Ensure that the input JSON contains PRODUCT_IMAGE_PRODUCT_ID for retrieval.
     if (!data.hasOwnProperty("PRODUCT_IMAGE_PRODUCT_ID")) {
-        throw "Input JSON must include PRODUCT_IMAGE_PRODUCT_ID for retrieval.";
+        throw new Error("Input JSON must include PRODUCT_IMAGE_PRODUCT_ID for retrieval.");
     }
-    var prodId = data.PRODUCT_IMAGE_PRODUCT_ID;
-    
-    var selectQuery = `SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data
-                       FROM EVERSHOP_COPY.PUBLIC.PRODUCT_IMAGE
-                       WHERE PRODUCT_IMAGE_PRODUCT_ID = ${prodId}
-                       ORDER BY PRODUCT_IMAGE_ID DESC
-                       LIMIT 1`;
-                       
-    var stmtSelect = snowflake.createStatement({ sqlText: selectQuery });
-    var resultSelect = stmtSelect.execute();
-    
+    const prodId = data.PRODUCT_IMAGE_PRODUCT_ID;
+    const selectSQL = `
+        SELECT OBJECT_CONSTRUCT_KEEP_NULL(*) AS row_data
+        FROM PRODUCT_IMAGE
+        WHERE PRODUCT_IMAGE_PRODUCT_ID = ${prodId}
+        ORDER BY PRODUCT_IMAGE_ID DESC
+        LIMIT 1
+    `;
+    const stmtSelect = snowflake.createStatement({ sqlText: selectSQL });
+    const resultSelect = stmtSelect.execute();
     if (!resultSelect.next()) {
-        throw "No inserted row found.";
+        throw new Error("No inserted row found.");
     }
+    const insertedRow = resultSelect.getColumnValue("row_data");
     
-    var insertedRow = resultSelect.getColumnValue("ROW_DATA");
-    
-    // --- 3. Log the event in the EVENT table ---
-    var eventDataStr = JSON.stringify(insertedRow);
-    eventDataStr = eventDataStr.replace(/'/g, "''");
-    
-    var eventInsertQuery = `INSERT INTO EVERSHOP_COPY.PUBLIC.EVENT (NAME, DATA)
-                             SELECT 'product_image_added', PARSE_JSON('${eventDataStr}')`;
-                             
-    var stmtEvent = snowflake.createStatement({ sqlText: eventInsertQuery });
+    // --- 3. Log an event in the EVENT table ---
+    let eventDataStr = JSON.stringify(insertedRow).replace(/'/g, "''");
+    const eventSQL = `
+        INSERT INTO EVENT (NAME, DATA)
+        SELECT 'product_image_added', PARSE_JSON('${eventDataStr}')
+    `;
+    const stmtEvent = snowflake.createStatement({ sqlText: eventSQL });
     stmtEvent.execute();
     
+    // Commit the transaction.
+    snowflake.execute({ sqlText: `COMMIT` });
+    
     // --- 4. Return the inserted row as a VARIANT ---
-    return JSON.parse(JSON.stringify(insertedRow));
+    return insertedRow;
+    
 } catch (err) {
-    return "Error: " + err;
+    // Rollback if any error occurs.
+    snowflake.execute({ sqlText: `ROLLBACK` });
+    throw new Error("Error: " + err);
 }
 $$;
 
 
-CALL EVERSHOP_COPY.PUBLIC.INSERT_PRODUCT_IMAGE_WITH_EVENT(
+CALL INSERT_PRODUCT_IMAGE_WITH_EVENT(
     PARSE_JSON('{
         "PRODUCT_IMAGE_PRODUCT_ID": 101,
         "ORIGIN_IMAGE": "origin.jpg",
