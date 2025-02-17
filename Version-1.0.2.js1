@@ -43,7 +43,7 @@ try {
     
     const insertSQL = `
         INSERT INTO CATEGORY (${columns.join(", ")})
-        VALUES (${values.join(", ")})
+        VALUES (${values.join(", ")}) 
     `;
     const stmtInsert = snowflake.createStatement({ sqlText: insertSQL });
     stmtInsert.execute();
