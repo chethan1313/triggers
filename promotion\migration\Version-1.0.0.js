@@ -1,5 +1,5 @@
 filename=C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\promotion\migration\Version-1.0.0.js
-
+  
 line=34-53
 
 C:\Users\Chethan\Downloads\original\EverShop\node_modules\@evershop\evershop\src\modules\checkout\services\orderCreator.js
